@@ -759,6 +759,13 @@ module View {
         | ParamRef(number owner_id, number param_id)
         | ModulatorRef(number device_id, number modulator_id)
 
+    -- ChainRef canonical encoding guidance for TerraUI key derivation:
+    --   TrackChain(7)                -> "track_chain/7"
+    --   DeviceNoteFX(42)             -> "device_note_fx/42"
+    --   DevicePostFX(42)             -> "device_post_fx/42"
+    --   LayerChain(100,3)            -> "layer_chain/100/3"
+    --   SelectorBranchChain(120,2)   -> "selector_chain/120/2"
+    --   SplitBandChain(130,1)        -> "split_chain/130/1"
     ChainRef
         = TrackChain(number track_id)
         | DeviceNoteFX(number device_id)
@@ -870,6 +877,17 @@ module View {
         View.CommandBind* commands
     )
 
+    -- MixerAnchor lowering guidance:
+    --   • MixerRootA   -> local anchor like "root"
+    --   • MixerHeaderA -> local anchor like "header"
+    --   • MixerTitleA  -> local anchor like "title"
+    --   • MixerMeterA  -> local anchor like "meter"
+    --   • MixerVolumeA -> local anchor like "volume"
+    --   • MixerPanA    -> local anchor like "pan"
+    --   • MixerSendA should encode send identity deterministically,
+    --     e.g. "send_12"
+    --   • MixerOutputA -> local anchor like "output"
+    --   • anchor naming is local to the keyed strip subtree, not global
     MixerAnchor = (
         View.MixerAnchorKind kind,
         number? send_id
@@ -889,6 +907,13 @@ module View {
         | MixerSendA
         | MixerOutputA
 
+    -- MixerCommand lowering guidance:
+    --   • action_id should be deterministic and mixer-surface scoped
+    --   • track_id is always the semantic track target
+    --   • send_id identifies a concrete semantic send when relevant
+    --   • target_track_id carries semantic routing payloads
+    --   • bool_value is used only for flag-like commands; level/value changes
+    --     should still route through semantic param-setting commands
     MixerCommand = (
         string action_id,
         View.MixerCommandKind kind,
@@ -910,6 +935,8 @@ module View {
 
     -- MixerView is the track-level mixing surface derived from Editor.Track
     -- mixer semantics, not from implicit UI-only faders.
+    -- It should preserve track ordering from the projected Editor subset and
+    -- derive one keyed strip subtree per visible track.
     MixerView = (
         number* visible_track_ids,
         View.MixerStrip* strips
@@ -928,6 +955,12 @@ module View {
     --   • CmdSetTrackFlags
     --   • CmdSetTrackOutput
     --   • CmdSetParamValue (volume/pan/send level)
+    -- Concrete lowering guidance:
+    --   • the strip root usually lowers to one keyed TerraUI column subtree
+    --   • meter, title, fader, pan, mute/solo/arm, send controls, and output
+    --     routing affordances should be exposed through deterministic anchors
+    --   • TerraUI actions should dispatch semantic track/send payloads rather
+    --     than relying on widget-local position alone
     MixerStrip = (
         number               track_id,
         View.Identity        identity,
@@ -954,6 +987,13 @@ module View {
     --   Editor.DeviceChain
     --     -> View.DeviceChainView(chain_ref,...,entries=[...])
     --     -> TerraUI Decl row/column/scroll composition for the chain editor
+    -- Concrete lowering guidance:
+    --   • the chain root usually lowers to one keyed TerraUI container node
+    --   • each DeviceEntry lowers to one keyed subtree using the entry identity
+    --   • chain insert/drop anchors lower to local TerraUI anchors whose names
+    --     are deterministic functions of at_index / device_id
+    --   • command action ids should be deterministic and surface-specific
+    --     (e.g. "chain.add_device", "device.move", "device.wrap.layer")
     DeviceChainView = (
         View.ChainRef            chain_ref,
         View.Identity            identity,
@@ -1144,6 +1184,13 @@ module View {
     --   • local anchors for module bodies and ports
     --   • actions for move/connect/disconnect/source binding routed back into
     --     Editor grid commands rather than generic UI-local mutation
+    -- Concrete lowering guidance:
+    --   • the patch root usually lowers to one keyed canvas/scroll subtree
+    --   • each module lowers to one keyed positioned subtree using module
+    --     identity derived from (device_id,module_id)
+    --   • port anchors should encode both module and port identity
+    --   • cable interactions should dispatch semantic payloads using module ids
+    --     and port numbers, never by referring to UI-local anchor names alone
     GridPatchView = (
         number                device_id,
         View.Identity         identity,
@@ -1159,6 +1206,8 @@ module View {
     -- One rendered module body within a GridPatchView.
     -- Anchors should identify stable editor affordances like body, input ports,
     -- output ports, and header/title regions.
+    -- The module subtree should normally be keyed from (device_id,module_id)
+    -- through the enclosing View.Identity rules.
     GridModuleView = (
         number                 device_id,
         number                 module_id,
@@ -1169,6 +1218,13 @@ module View {
 
     -- Typed anchors/commands for the chain editor so the central DAW surface
     -- can be specified precisely rather than only by convention.
+    -- DeviceChainAnchor lowering guidance:
+    --   • ChainRootA  -> local anchor like "root"
+    --   • ChainHeaderA -> local anchor like "header"
+    --   • ChainInsertA/ChainDropA should encode `at_index` deterministically,
+    --     e.g. "insert_3" / "drop_3"
+    --   • device_id may be used when an anchor is attached to an adjacent card
+    --   • anchor naming is local to the keyed chain subtree, not global
     DeviceChainAnchor = (
         View.DeviceChainAnchorKind kind,
         number? device_id,
@@ -1181,6 +1237,12 @@ module View {
         | ChainDropA
         | ChainHeaderA
 
+    -- DeviceChainCommand lowering guidance:
+    --   • action_id should be a deterministic TerraUI-facing name scoped to the
+    --     chain editor surface
+    --   • chain_ref is the authoritative semantic chain target
+    --   • device_id / at_index provide semantic payload, not UI-local targets
+    --   • action dispatch must always normalize back into Editor commands
     DeviceChainCommand = (
         string action_id,
         View.DeviceChainCommandKind kind,
@@ -1198,6 +1260,10 @@ module View {
         | DCCWrapInSplit
         | DCCToggleDeviceEnabled
 
+    -- DeviceEntryAnchor lowering guidance:
+    --   • these lower to local anchors inside the keyed device-entry subtree
+    --   • names should be stable and conventional ("title", "enable_toggle",
+    --     "note_fx_tab", "post_fx_tab", ...)
     DeviceEntryAnchor = (
         View.DeviceEntryAnchorKind kind
     )
@@ -1211,6 +1277,12 @@ module View {
         | DeviceInsertBeforeA
         | DeviceInsertAfterA
 
+    -- DeviceEntryCommand lowering guidance:
+    --   • action_id should be a deterministic TerraUI-facing name scoped to a
+    --     device card surface
+    --   • device_id is the semantic command target; anchors are only for local
+    --     visual targeting
+    --   • at_index is used when the card exposes insertion/wrapping positions
     DeviceEntryCommand = (
         string action_id,
         View.DeviceEntryCommandKind kind,
@@ -1227,6 +1299,12 @@ module View {
         | DECCWrapInSelector
         | DECCWrapInSplit
 
+    -- GridPatchAnchor lowering guidance:
+    --   • PatchRootA -> local anchor like "root"
+    --   • PatchCanvasA -> local anchor like "canvas"
+    --   • PatchDropA should encode patch-local insertion/drop targeting
+    --   • module_id / port_id may be carried when the patch root exposes a
+    --     root-level target associated with a concrete module/port
     GridPatchAnchor = (
         View.GridPatchAnchorKind kind,
         number? module_id,
@@ -1239,6 +1317,12 @@ module View {
         | PatchDropA
         | PatchSelectionA
 
+    -- GridPatchCommand lowering guidance:
+    --   • action_id should be deterministic and patch-surface scoped
+    --   • device_id identifies the owning GridContainer / GridPatch scope
+    --   • module/port payloads are semantic editor payloads for grid commands
+    --   • connect/disconnect actions should carry explicit endpoint ids rather
+    --     than reconstructing them from UI-local anchor names
     GridPatchCommand = (
         string action_id,
         View.GridPatchCommandKind kind,
@@ -1260,6 +1344,13 @@ module View {
         | GPCCBindSource
         | GPCCUnbindSource
 
+    -- GridModuleAnchor lowering guidance:
+    --   • ModuleBodyA   -> local anchor like "body"
+    --   • ModuleHeaderA -> local anchor like "header"
+    --   • ModuleTitleA  -> local anchor like "title"
+    --   • ModuleInputPortA / ModuleOutputPortA should encode port identity
+    --     deterministically, e.g. "in_0", "out_1"
+    --   • anchor naming is local to the keyed module subtree, not global
     GridModuleAnchor = (
         View.GridModuleAnchorKind kind,
         number? port_id
@@ -1272,6 +1363,11 @@ module View {
         | ModuleInputPortA
         | ModuleOutputPortA
 
+    -- GridModuleCommand lowering guidance:
+    --   • action_id should be deterministic and module-surface scoped
+    --   • device_id + module_id identify the semantic module target
+    --   • port_id identifies the semantic source/bind port on the module
+    --   • completion payloads may carry destination module/port explicitly
     GridModuleCommand = (
         string action_id,
         View.GridModuleCommandKind kind,
@@ -1326,6 +1422,29 @@ module View {
     --   • semantic_ref identifies the real Editor object
     --   • key_space distinguishes multiple UI projections of the same object
     --   • TerraUI `key`/`scope` is derived from (key_space, semantic_ref)
+    --   • derivation must be deterministic and path-stable for the same view
+    --     projection so TerraUI local state persists correctly
+    -- Canonical naming convention:
+    --   • derive a TerraUI scope/key path as:
+    --       <key_space>/<semantic_ref encoding>
+    --   • semantic_ref encodings should be textual and unambiguous, e.g.:
+    --       TrackRef(7)                    -> "track/7"
+    --       DeviceRef(42)                  -> "device/42"
+    --       LayerRef(100,3)                -> "layer/100/3"
+    --       SelectorBranchRef(120,2)       -> "selector_branch/120/2"
+    --       SplitBandRef(130,1)            -> "split_band/130/1"
+    --       GridModuleRef(200,8)           -> "grid_module/200/8"
+    --       ClipRef(55)                    -> "clip/55"
+    --       SendRef(7,2)                   -> "send/7/2"
+    --       ParamRef(42,9)                 -> "param/42/9"
+    --   • example full keys:
+    --       "mixer_strip/track/7"
+    --       "device_chain/track_chain/7"
+    --       "device_entry/device/42"
+    -- Typical examples:
+    --   • ("mixer_strip", TrackRef(7)) -> keyed strip instance for track 7
+    --   • ("device_chain", TrackChain(7)) -> keyed chain root for that scope
+    --   • ("device_entry", DeviceRef(42)) -> keyed card instance for device 42
     Identity = (
         string key_space,
         View.SemanticRef semantic_ref
@@ -1333,6 +1452,16 @@ module View {
 
     -- Anchors are local named visual targets exposed intentionally by a view.
     -- They lower to TerraUI local anchors, not to Editor semantic ids.
+    -- Anchor names should be deterministic within the keyed subtree that owns
+    -- them, so floating/tooltip/gesture targeting is stable.
+    -- Canonical naming convention:
+    --   • anchors are local leaf names inside a keyed subtree
+    --   • simple singleton anchors use conventional names like:
+    --       "root", "header", "title", "meter", "body", "canvas"
+    --   • indexed anchors append semantic payload deterministically, e.g.:
+    --       "insert_3", "drop_3", "send_12", "in_0", "out_1"
+    --   • command payloads must never rely on anchor parsing alone; anchors
+    --     are for local targeting, while semantic payload remains explicit
     Anchor = (
         string name,
         string purpose
