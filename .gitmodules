@@ -1,0 +1,3 @@
+[submodule "terraui"]
+	path = terraui
+	url = git@github.com:cperion/terraui.git
