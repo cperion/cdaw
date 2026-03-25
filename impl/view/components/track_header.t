@@ -8,6 +8,7 @@ local C = require("impl/view/_support/common")
 local T = require("impl/view/components/text")
 local B = require("impl/view/components/button")
 local I = require("impl/view/components/icons")
+local P = require("impl/view/components/placeholder_panel")
 
 local M = {}
 
@@ -32,16 +33,7 @@ function M.lower(track_header, ctx, selection)
         height = 26
     end
 
-    return ui.row {
-        key = scope,
-        width = ui.grow(),
-        height = ui.fixed(height),
-        padding = { left = 6, top = 3, right = 6, bottom = 3 },
-        gap = 6,
-        align_y = ui.align_y.center,
-        background = selected and p.surface_selected or p.surface_track_header,
-        border = C.border(ctx, selected and p.border_selected or p.border_track_header, 1),
-    } {
+    local children = {
         ui.column {
             key = scope:child("color"),
             width = ui.fixed(3),
@@ -76,6 +68,18 @@ function M.lower(track_header, ctx, selection)
             icon_color = selected and p.text_primary or p.text_secondary,
         }),
     }
+    P.overlay_children(ctx, scope, track_header.identity, children)
+
+    return ui.row {
+        key = scope,
+        width = ui.grow(),
+        height = ui.fixed(height),
+        padding = { left = 6, top = 3, right = 6, bottom = 3 },
+        gap = 6,
+        align_y = ui.align_y.center,
+        background = selected and p.surface_selected or p.surface_track_header,
+        border = C.border(ctx, selected and p.border_selected or p.border_track_header, 1),
+    } (children)
 end
 
 return M

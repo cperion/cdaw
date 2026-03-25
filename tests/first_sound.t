@@ -1,0 +1,173 @@
+-- tests/first_sound.t
+-- MILESTONE E: First sound test.
+-- Verifies that the compiled kernel produces actual non-zero audio output.
+-- Signal path: DC 1.0 → GainNode(gain=0.75) → track volume(0.8) → master L/R
+
+local D = require("daw-unified")
+require("impl/init")
+local F = require("impl/_support/fallbacks")
+local L = F.L
+local C = terralib.includec("stdio.h")
+
+local pass_count = 0
+local fail_count = 0
+
+local function check(cond, msg)
+    if cond then
+        pass_count = pass_count + 1
+    else
+        fail_count = fail_count + 1
+        print("  FAIL: " .. msg)
+    end
+end
+
+local function approx(a, b, tol)
+    tol = tol or 0.001
+    return math.abs(a - b) < tol
+end
+
+-- ══════════════════════════════════════════════════════════
+-- Build a minimal project: 1 track, 1 GainNode(gain=0.75),
+-- track volume=0.8
+-- Expected output per sample: 1.0 * 0.75 * 0.8 = 0.6
+-- ══════════════════════════════════════════════════════════
+
+print("═══════════════════════════════════════════")
+print("  FIRST SOUND TEST — Milestone E")
+print("═══════════════════════════════════════════")
+print("")
+
+local FRAMES = 64
+local GAIN = 0.75
+local VOLUME = 0.8
+local EXPECTED = 1.0 * GAIN * VOLUME  -- = 0.6
+
+print("Signal path: DC 1.0 → GainNode(gain=" .. GAIN .. ") → volume(" .. VOLUME .. ") → master")
+print("Expected output per sample: " .. EXPECTED)
+print("")
+
+local project = D.Editor.Project(
+    "first_sound", nil, 1,
+    D.Editor.Transport(44100, FRAMES, 120, 0, 4, 4, D.Editor.QNone, false, nil),
+    L{D.Editor.Track(1, "Track 1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+        D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(VOLUME), D.Editor.Replace, D.Editor.NoSmoothing),
+        D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
+        D.Editor.DeviceChain(L{
+            D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
+                10, "Gain", D.Authored.GainNode(),
+                L{D.Editor.ParamValue(0, "gain", 1, 0, 4, D.Editor.StaticValue(GAIN), D.Editor.Replace, D.Editor.NoSmoothing)},
+                L(), nil, nil, nil, true, nil
+            ))
+        }),
+        L(), L(), L(), nil, nil, false, false, false, false, false, nil
+    )},
+    L(),
+    D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
+    D.Authored.AssetBank(L(), L(), L(), L(), L())
+)
+
+-- ── Run the full 7-phase pipeline ──
+print("Phase 0: Editor")
+local ctx = {diagnostics = {}}
+
+print("Phase 1: Editor → Authored")
+local authored = project:lower(ctx)
+check(#authored.tracks == 1, "Should have 1 track")
+
+print("Phase 2: Authored → Resolved")
+local resolved = authored:resolve(ctx)
+check(#resolved.all_nodes >= 1, "Should have ≥1 node, got " .. #resolved.all_nodes)
+check(#resolved.all_params >= 1, "Should have ≥1 param, got " .. #resolved.all_params)
+
+print("Phase 3: Resolved → Classified")
+local classified = resolved:classify(ctx)
+check(#classified.literals >= 1, "Should have ≥1 literal")
+
+print("Phase 4: Classified → Scheduled")
+local scheduled = classified:schedule(ctx)
+check(#scheduled.node_jobs >= 1, "Should have ≥1 node job")
+check(scheduled.total_buffers >= 3, "Should have ≥3 buffers (master L + R + work)")
+
+-- Show literal table
+print("  Literals:")
+for i = 1, #scheduled._literal_values do
+    print("    [" .. (i-1) .. "] = " .. scheduled._literal_values[i])
+end
+
+print("Phase 5: Scheduled → Kernel")
+local kernel = scheduled:compile(ctx)
+check(kernel ~= nil, "Kernel should not be nil")
+check(kernel._render_fn ~= nil, "Should have a compiled render function")
+
+print("Phase 6: Kernel entry")
+local render = kernel:entry_fn()
+check(render ~= nil, "render should not be nil")
+
+print("")
+print("── Calling compiled render function ──")
+
+-- Allocate output buffers
+local output_left = terralib.new(float[FRAMES])
+local output_right = terralib.new(float[FRAMES])
+
+-- Zero them
+for i = 0, FRAMES - 1 do
+    output_left[i] = 0.0
+    output_right[i] = 0.0
+end
+
+-- Call the compiled render!
+render(output_left, output_right, FRAMES)
+
+-- ── Check output ──
+print("")
+print("── Output verification ──")
+
+-- Check first few samples
+local all_zero = true
+local all_correct = true
+for i = 0, FRAMES - 1 do
+    local vl = output_left[i]
+    local vr = output_right[i]
+    if vl ~= 0.0 or vr ~= 0.0 then all_zero = false end
+    if not approx(vl, EXPECTED) or not approx(vr, EXPECTED) then
+        all_correct = false
+        if i < 4 then
+            print(string.format("  sample[%d]: L=%.6f R=%.6f (expected %.6f)", i, vl, vr, EXPECTED))
+        end
+    end
+end
+
+-- Print first few samples
+for i = 0, math.min(7, FRAMES - 1) do
+    print(string.format("  output[%d]: L=%.6f  R=%.6f", i, output_left[i], output_right[i]))
+end
+
+print("")
+check(not all_zero, "Output should NOT be all zeros — we want SOUND!")
+check(all_correct, "All samples should be ≈" .. EXPECTED .. " (1.0 × " .. GAIN .. " × " .. VOLUME .. ")")
+
+-- Count diagnostics
+check(#ctx.diagnostics == 0,
+    "Should have 0 diagnostics, got " .. #ctx.diagnostics)
+if #ctx.diagnostics > 0 then
+    for i = 1, #ctx.diagnostics do
+        local d = ctx.diagnostics[i]
+        print("  diag: [" .. (d.severity or "?") .. "] " .. (d.code or "?") .. ": " .. (d.message or "?"))
+    end
+end
+
+-- ── Summary ──
+print("")
+if fail_count == 0 then
+    print("════════════════════════════════════════════")
+    print("  🔊 FIRST SOUND: PASS (" .. pass_count .. " checks)")
+    print("  Signal: DC 1.0 → Gain(" .. GAIN .. ") → Vol(" .. VOLUME .. ") → " .. EXPECTED)
+    print("  Compiled Terra function produced real audio output!")
+    print("════════════════════════════════════════════")
+else
+    print("════════════════════════════════════════════")
+    print("  FAILURES: " .. fail_count .. " / " .. (pass_count + fail_count))
+    print("════════════════════════════════════════════")
+    os.exit(1)
+end

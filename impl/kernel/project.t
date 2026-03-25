@@ -4,12 +4,15 @@
 local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 
-diag.status("kernel.project.entry_fn", "stub")
+diag.status("kernel.project.entry_fn", "real")
 
 function D.Kernel.Project:entry_fn()
-    -- Stub: return a no-op terra function.
-    -- Real implementation composes the API functions into a single
-    -- render entry point callable from the audio thread.
+    -- Return the compiled render function.
+    -- The project compile attaches it as _render_fn.
+    if self._render_fn then
+        return self._render_fn
+    end
+    -- Fallback: no-op
     local terra noop_entry() end
     return noop_entry
 end

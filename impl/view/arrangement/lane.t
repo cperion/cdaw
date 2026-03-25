@@ -6,6 +6,7 @@ local V = D.View
 
 local C = require("impl/view/_support/common")
 local H = require("impl/view/components/track_header")
+local P = require("impl/view/components/placeholder_panel")
 
 local M = {}
 
@@ -32,8 +33,9 @@ function M.lower(lane, ctx, selection)
         end
         local selected = C.selection_is_clip(selection, clip.clip_ref)
         local select_cmd = C.find_command(clip.commands, V.ACCSelectClip)
-        C.push(clip_children, ui.button {
-            key = C.make_scope(ctx, clip.identity, C.identity_key(clip.identity)),
+        local clip_scope = C.make_scope(ctx, clip.identity, C.identity_key(clip.identity))
+        local clip_button = ui.button {
+            key = clip_scope:child("base"),
             width = ui.fixed(info.width),
             height = ui.fixed(20),
             padding = { left = 6, top = 1, right = 6, bottom = 1 },
@@ -43,7 +45,11 @@ function M.lower(lane, ctx, selection)
             border = C.border(ctx, selected and p.border_selected or p.clip_border, 1),
             text_color = p.text_primary,
             font_size = 11,
-        })
+        }
+        C.push(clip_children, P.wrap_node(ctx, clip_scope, clip.identity, clip_button, {
+            width = ui.fixed(info.width),
+            height = ui.fixed(20),
+        }))
         C.push(clip_children, ui.spacer {
             key = body_scope:child("gap_" .. tostring(i)),
             width = ui.fixed(8),
@@ -51,14 +57,7 @@ function M.lower(lane, ctx, selection)
         })
     end
 
-    return ui.row {
-        key = scope,
-        width = ui.grow(),
-        height = ui.fixed(44),
-        gap = 0,
-        background = p.surface_arrangement_lane,
-        border = ui.border { bottom = 1, color = p.border_separator },
-    } {
+    local children = {
         ui.column {
             key = C.make_scope(ctx, lane.header.identity, C.identity_key(lane.header.identity)),
             width = ui.fixed(168),
@@ -79,6 +78,16 @@ function M.lower(lane, ctx, selection)
             background = p.surface_arrangement_canvas,
         } (clip_children),
     }
+    P.overlay_children(ctx, scope, lane.identity, children)
+
+    return ui.row {
+        key = scope,
+        width = ui.grow(),
+        height = ui.fixed(44),
+        gap = 0,
+        background = p.surface_arrangement_lane,
+        border = ui.border { bottom = 1, color = p.border_separator },
+    } (children)
 end
 
 return M

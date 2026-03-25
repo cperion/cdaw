@@ -5,14 +5,14 @@ local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local L = F.L
-diag.status("authored.node.resolve", "partial")
+diag.status("authored.node.resolve", "real")
 
 
 -- ChildGraphRole → code
 local role_codes = { MainChild = 0, PreFXChild = 1, PostFXChild = 2, NoteFXChild = 3 }
 
 function D.Authored.Node:resolve(ctx)
-    return diag.wrap(ctx, "authored.node.resolve", "partial", function()
+    return diag.wrap(ctx, "authored.node.resolve", "real", function()
         -- Resolve kind
         local kind_ref = self.kind:resolve(ctx)
         local kind_code = kind_ref.kind_code

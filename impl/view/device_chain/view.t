@@ -33,15 +33,7 @@ function V.DeviceChainView:to_decl(ctx)
             C.push(children, ui.spacer { key = scope:child("gap_" .. tostring(i)), width = ui.fixed(8), height = ui.fixed(0) })
         end
 
-        return ui.column {
-            key = scope,
-            width = ui.grow(),
-            height = ui.grow(),
-            gap = 8,
-            background = p.surface_detail,
-            border = ui.border { top = 1, color = p.border_separator },
-            padding = { left = 8, top = 8, right = 8, bottom = 8 },
-        } {
+        local surface_children = {
             ui.row {
                 key = scope:child("header"),
                 width = ui.grow(),
@@ -66,6 +58,17 @@ function V.DeviceChainView:to_decl(ctx)
                 } (children),
             },
         }
+        P.overlay_children(ctx, scope, self.identity, surface_children)
+
+        return ui.column {
+            key = scope,
+            width = ui.grow(),
+            height = ui.grow(),
+            gap = 8,
+            background = p.surface_detail,
+            border = ui.border { top = 1, color = p.border_separator },
+            padding = { left = 8, top = 8, right = 8, bottom = 8 },
+        } (surface_children)
     end, function(err)
         return P.fallback_node(ctx, C.identity_key(self.identity), "view.device_chain_view.to_decl", tostring(err))
     end)

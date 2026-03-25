@@ -7,6 +7,7 @@ local V = D.View
 local C = require("impl/view/_support/common")
 local B = require("impl/view/components/button")
 local H = require("impl/view/components/track_header")
+local P = require("impl/view/components/placeholder_panel")
 
 local M = {}
 
@@ -49,8 +50,8 @@ function M.lower_scene(scene, ctx, selection)
     local cmd = C.find_command(scene.commands, V.LCCLaunchScene)
         or C.find_command(scene.commands, V.LCCSelectScene)
 
-    return ui.button {
-        key = scope,
+    local button = ui.button {
+        key = scope:child("base"),
         width = ui.grow(),
         height = ui.fixed(22),
         padding = { left = 4, top = 1, right = 4, bottom = 1 },
@@ -61,6 +62,10 @@ function M.lower_scene(scene, ctx, selection)
         text_color = p.text_primary,
         font_size = 10,
     }
+    return P.wrap_node(ctx, scope, scene.identity, button, {
+        width = ui.grow(),
+        height = ui.fixed(22),
+    })
 end
 
 function M.find_stop_cell(stop_row, track_ref)
@@ -81,8 +86,8 @@ function M.lower_stop_cell(cell, ctx)
     local scope = C.make_scope(ctx, cell.identity, C.identity_key(cell.identity))
     local cmd = C.find_command(cell.commands, V.LCCStopTrack)
 
-    return B.flat_button(ctx, "■", cmd and cmd.action_id or nil, {
-        key = scope,
+    local button = B.flat_button(ctx, "■", cmd and cmd.action_id or nil, {
+        key = scope:child("base"),
         width = ui.grow(),
         height = ui.fixed(18),
         padding = { left = 0, top = 0, right = 0, bottom = 0 },
@@ -90,6 +95,10 @@ function M.lower_stop_cell(cell, ctx)
         border = C.border(ctx, p.border_control, 1),
         text_color = p.text_muted,
         font_size = 12,
+    })
+    return P.wrap_node(ctx, scope, cell.identity, button, {
+        width = ui.grow(),
+        height = ui.fixed(18),
     })
 end
 
@@ -107,8 +116,8 @@ function M.lower_column(column, stop_cell, ctx, selection)
         local action = (launch_cmd and launch_cmd.action_id)
             or (select_cmd and select_cmd.action_id)
 
-        C.push(slot_children, ui.button {
-            key = slot_scope,
+        local slot_button = ui.button {
+            key = slot_scope:child("base"),
             width = ui.grow(),
             height = ui.fixed(22),
             padding = { left = 4, top = 1, right = 4, bottom = 1 },
@@ -118,16 +127,14 @@ function M.lower_column(column, stop_cell, ctx, selection)
             border = slot_border(slot, selection, ctx, p),
             text_color = p.text_primary,
             font_size = 10,
-        })
+        }
+        C.push(slot_children, P.wrap_node(ctx, slot_scope, slot.identity, slot_button, {
+            width = ui.grow(),
+            height = ui.fixed(22),
+        }))
     end
 
-    return ui.column {
-        key = scope,
-        width = ui.fixed(84),
-        height = ui.grow(),
-        gap = 4,
-        padding = { left = 0, top = 0, right = 0, bottom = 0 },
-    } {
+    local children = {
         H.lower(column.header, ctx, selection),
         M.lower_stop_cell(stop_cell, ctx),
         ui.column {
@@ -137,6 +144,15 @@ function M.lower_column(column, stop_cell, ctx, selection)
             gap = 4,
         } (slot_children),
     }
+    P.overlay_children(ctx, scope, column.identity, children)
+
+    return ui.column {
+        key = scope,
+        width = ui.fixed(84),
+        height = ui.grow(),
+        gap = 4,
+        padding = { left = 0, top = 0, right = 0, bottom = 0 },
+    } (children)
 end
 
 return M

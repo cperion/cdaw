@@ -100,30 +100,40 @@ function V.TransportBar:to_decl(ctx)
         }
 
         -- Right cluster: ADD / EDIT
+        local right_children = {}
+        C.push(right_children, B.flat_button(ctx, "ADD", nil, {
+            key = scope:child("add"),
+            width = ui.fixed(36),
+            height = ui.fixed(24),
+            padding = { left = 0, top = 0, right = 0, bottom = 0 },
+            font_size = 10,
+        }))
+        C.push(right_children, B.flat_button(ctx, "EDIT", nil, {
+            key = scope:child("edit"),
+            width = ui.fixed(36),
+            height = ui.fixed(24),
+            padding = { left = 0, top = 0, right = 0, bottom = 0 },
+            font_size = 10,
+            background = p.surface_selected,
+            border = C.border(ctx, p.border_selected, 1),
+        }))
+
         local right = ui.row {
             key = scope:child("right"),
             width = ui.fit(),
             height = ui.fit(),
             gap = 2,
             align_y = ui.align_y.center,
-        } {
-            B.flat_button(ctx, "ADD", nil, {
-                key = scope:child("add"),
-                width = ui.fixed(36),
-                height = ui.fixed(24),
-                padding = { left = 0, top = 0, right = 0, bottom = 0 },
-                font_size = 10,
-            }),
-            B.flat_button(ctx, "EDIT", nil, {
-                key = scope:child("edit"),
-                width = ui.fixed(36),
-                height = ui.fixed(24),
-                padding = { left = 0, top = 0, right = 0, bottom = 0 },
-                font_size = 10,
-                background = p.surface_selected,
-                border = C.border(ctx, p.border_selected, 1),
-            }),
+        } (right_children)
+
+        local children = {
+            left,
+            ui.spacer { key = scope:child("grow_l"), width = ui.grow(), height = ui.fixed(0) },
+            center,
+            ui.spacer { key = scope:child("grow_r"), width = ui.grow(), height = ui.fixed(0) },
+            right,
         }
+        P.overlay_children(ctx, scope, self.identity, children)
 
         return ui.row {
             key = scope,
@@ -134,13 +144,7 @@ function V.TransportBar:to_decl(ctx)
             align_y = ui.align_y.center,
             background = p.surface_transport,
             border = ui.border { bottom = 1, color = p.border_separator },
-        } {
-            left,
-            ui.spacer { key = scope:child("grow_l"), width = ui.grow(), height = ui.fixed(0) },
-            center,
-            ui.spacer { key = scope:child("grow_r"), width = ui.grow(), height = ui.fixed(0) },
-            right,
-        }
+        } (children)
     end, function(err)
         return P.fallback_node(ctx, C.identity_key(self.identity), "view.transport_bar.to_decl", tostring(err))
     end)

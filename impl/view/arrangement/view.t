@@ -26,14 +26,7 @@ function V.ArrangementView:to_decl(ctx)
             ruler_text = string.format("%.1f → %.1f", self.ruler.visible_start_beats, self.ruler.visible_end_beats)
         end
 
-        return ui.column {
-            key = scope,
-            width = ui.grow(),
-            height = ui.grow(),
-            gap = 0,
-            background = p.surface_arrangement,
-            border = ui.border { right = 1, color = p.border_separator },
-        } {
+        local children = {
             ui.row {
                 key = scope:child("ruler"),
                 width = ui.grow(),
@@ -56,6 +49,16 @@ function V.ArrangementView:to_decl(ctx)
                 background = p.surface_arrangement,
             } (lane_children),
         }
+        P.overlay_children(ctx, scope, self.identity, children)
+
+        return ui.column {
+            key = scope,
+            width = ui.grow(),
+            height = ui.grow(),
+            gap = 0,
+            background = p.surface_arrangement,
+            border = ui.border { right = 1, color = p.border_separator },
+        } (children)
     end, function(err)
         return P.fallback_node(ctx, C.identity_key(self.identity), "view.arrangement_view.to_decl", tostring(err))
     end)

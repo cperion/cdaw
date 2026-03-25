@@ -23,13 +23,7 @@ function V.MixerView:to_decl(ctx)
             C.push(strip_children, strip.lower(self.strips[i], ctx, ctx.selection))
         end
 
-        return ui.column {
-            key = scope,
-            width = ui.grow(),
-            height = ui.grow(),
-            gap = 0,
-            background = p.surface_main,
-        } {
+        local children = {
             ui.scroll_region {
                 key = scope:child("strips_scroll"),
                 width = ui.grow(),
@@ -48,6 +42,15 @@ function V.MixerView:to_decl(ctx)
                 } (strip_children),
             },
         }
+        P.overlay_children(ctx, scope, self.identity, children)
+
+        return ui.column {
+            key = scope,
+            width = ui.grow(),
+            height = ui.grow(),
+            gap = 0,
+            background = p.surface_main,
+        } (children)
     end, function(err)
         return P.fallback_node(ctx, C.identity_key(self.identity), "view.mixer_view.to_decl", tostring(err))
     end)

@@ -5,7 +5,7 @@ local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local L = F.L
-diag.status("authored.track.resolve", "partial")
+diag.status("authored.track.resolve", "real")
 
 
 -- TrackInput → (kind_code, arg0, arg1)
@@ -19,7 +19,7 @@ local function encode_input(input)
 end
 
 function D.Authored.Track:resolve(ctx)
-    return diag.wrap(ctx, "authored.track.resolve", "partial", function()
+    return diag.wrap(ctx, "authored.track.resolve", "real", function()
         local ik, ia0, ia1 = encode_input(self.input)
 
         local volume = self.volume:resolve(ctx)

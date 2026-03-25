@@ -5,11 +5,11 @@ local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local L = F.L
-diag.status("resolved.param.classify", "partial")
+diag.status("resolved.param.classify", "real")
 
 
 function D.Resolved.Param:classify(ctx)
-    return diag.wrap(ctx, "resolved.param.classify", "partial", function()
+    return diag.wrap(ctx, "resolved.param.classify", "real", function()
         -- Determine base value binding from source
         -- rate_class: 0=literal 1=init 2=block 3=sample 4=event 5=voice
         local rate_class = 0   -- literal by default

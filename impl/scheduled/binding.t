@@ -5,11 +5,11 @@ local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local L = F.L
-diag.status("scheduled.binding.compile_value", "partial")
+diag.status("scheduled.binding.compile_value", "real")
 
 
 function D.Scheduled.Binding:compile_value(ctx)
-    return diag.wrap(ctx, "scheduled.binding.compile_value", "partial", function()
+    return diag.wrap(ctx, "scheduled.binding.compile_value", "real", function()
         -- rate_class: 0=literal 1=init 2=block 3=sample 4=event 5=voice
         -- For literal bindings, return a constant.
         -- For everything else, return 0 as stub.

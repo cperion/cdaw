@@ -5,7 +5,7 @@ local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local L = F.L
-diag.status("authored.slot.resolve", "partial")
+diag.status("authored.slot.resolve", "real")
 
 
 local slot_kind_codes = { EmptySlot = 0, ClipSlot = 1, StopSlot = 2 }
@@ -21,7 +21,7 @@ local quantize_codes = {}
 for i, name in ipairs(quantize_codes_list) do quantize_codes[name] = i - 1 end
 
 function D.Authored.Slot:resolve(ctx)
-    return diag.wrap(ctx, "authored.slot.resolve", "partial", function()
+    return diag.wrap(ctx, "authored.slot.resolve", "real", function()
         local sk = slot_kind_codes[self.content.kind] or 0
         local clip_id = 0
         if self.content.kind == "ClipSlot" then

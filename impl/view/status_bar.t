@@ -6,6 +6,7 @@
 local C = require("impl/view/_support/common")
 local T = require("impl/view/components/text")
 local B = require("impl/view/components/button")
+local P = require("impl/view/components/placeholder_panel")
 
 local M = {}
 
@@ -46,16 +47,7 @@ function M.lower(status_bar, ctx)
     local center_text = ctx.dynamic_status_params and ui.param_ref("status_center") or (status_bar.center_text or "")
     local right_text = ctx.dynamic_status_params and ui.param_ref("status_right") or (status_bar.right_text or "")
 
-    return ui.row {
-        key = scope,
-        width = ui.grow(),
-        height = ui.fixed(26),
-        padding = { left = 6, top = 3, right = 8, bottom = 3 },
-        gap = 4,
-        align_y = ui.align_y.center,
-        background = p.surface_status,
-        border = ui.border { top = 1, color = p.border_separator },
-    } {
+    local children = {
         mode_button(ctx, scope:child("arrange"), "ARRANGE", "app.mode.arrange", "mode_arrange"),
         mode_button(ctx, scope:child("mix"), "MIX", "app.mode.mix", "mode_mix"),
         mode_button(ctx, scope:child("edit"), "EDIT", "app.mode.edit", "mode_edit"),
@@ -72,6 +64,18 @@ function M.lower(status_bar, ctx)
             font_size = 10,
         }),
     }
+    P.overlay_children(ctx, scope, status_bar.identity, children)
+
+    return ui.row {
+        key = scope,
+        width = ui.grow(),
+        height = ui.fixed(26),
+        padding = { left = 6, top = 3, right = 8, bottom = 3 },
+        gap = 4,
+        align_y = ui.align_y.center,
+        background = p.surface_status,
+        border = ui.border { top = 1, color = p.border_separator },
+    } (children)
 end
 
 return M

@@ -6,6 +6,7 @@ local V = D.View
 
 local C = require("impl/view/_support/common")
 local B = require("impl/view/components/button")
+local P = require("impl/view/components/placeholder_panel")
 local section_view = require("impl/view/inspector/section_view")
 
 local M = {}
@@ -13,14 +14,19 @@ local M = {}
 function M.lower_button(tab, ctx, selected)
     local cmd = C.find_command(tab.commands, V.ICCSelectTab)
     local p = C.palette(ctx)
-    return B.flat_button(ctx, tab.tab_key, cmd and cmd.action_id or nil, {
-        key = C.make_scope(ctx, tab.identity, C.identity_key(tab.identity)),
+    local scope = C.make_scope(ctx, tab.identity, C.identity_key(tab.identity))
+    local button = B.flat_button(ctx, tab.tab_key, cmd and cmd.action_id or nil, {
+        key = scope:child("base"),
         width = ctx.ui.fit(),
         height = ctx.ui.fixed(22),
         padding = { left = 8, top = 0, right = 8, bottom = 0 },
         background = selected and p.surface_selected or p.surface_control,
         border = C.border(ctx, selected and p.border_selected or p.border_control, 1),
         font_size = 11,
+    })
+    return P.wrap_node(ctx, scope, tab.identity, button, {
+        width = ctx.ui.fit(),
+        height = ctx.ui.fixed(22),
     })
 end
 

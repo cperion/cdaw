@@ -5,11 +5,11 @@ local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local L = F.L
-diag.status("authored.send.resolve", "partial")
+diag.status("authored.send.resolve", "real")
 
 
 function D.Authored.Send:resolve(ctx)
-    return diag.wrap(ctx, "authored.send.resolve", "partial", function()
+    return diag.wrap(ctx, "authored.send.resolve", "real", function()
         local level_param = self.level:resolve(ctx)
         return D.Resolved.Send(
             self.id,

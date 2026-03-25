@@ -5,11 +5,11 @@ local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local L = F.L
-diag.status("editor.track.lower", "partial")
+diag.status("editor.track.lower", "real")
 
 
 function D.Editor.Track:lower(ctx)
-    return diag.wrap(ctx, "editor.track.lower", "partial", function()
+    return diag.wrap(ctx, "editor.track.lower", "real", function()
         local input = F.track_input_e2a(self.input)
         local volume = self.volume:lower(ctx)
         local pan = self.pan:lower(ctx)

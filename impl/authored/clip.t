@@ -5,7 +5,7 @@ local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local L = F.L
-diag.status("authored.clip.resolve", "partial")
+diag.status("authored.clip.resolve", "real")
 
 
 -- Fade curve → code: LinearFade=0, EqualPower=1, SCurve=2, ExpoFade=3
@@ -15,7 +15,7 @@ local fade_codes = { LinearFade = 0, EqualPower = 1, SCurve = 2, ExpoFade = 3 }
 local content_codes = { AudioContent = 0, NoteContent = 1 }
 
 function D.Authored.Clip:resolve(ctx)
-    return diag.wrap(ctx, "authored.clip.resolve", "partial", function()
+    return diag.wrap(ctx, "authored.clip.resolve", "real", function()
         local ticks_per_beat = (ctx and ctx.ticks_per_beat) or 960
 
         local content_kind = content_codes[self.content.kind] or 0

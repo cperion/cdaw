@@ -11,6 +11,7 @@ local C = require("impl/view/_support/common")
 local T = require("impl/view/components/text")
 local B = require("impl/view/components/button")
 local I = require("impl/view/components/icons")
+local P = require("impl/view/components/placeholder_panel")
 
 local M = {}
 
@@ -117,14 +118,19 @@ local function lower_sends(strip, ctx, scope)
     for i = 1, #strip.sends do
         local send = strip.sends[i]
         local cmd = C.find_command(send.commands, V.MCCSetSendLevel)
-        C.push(children, B.flat_button(ctx, "FX " .. tostring(send.send_ref.send_id), cmd and cmd.action_id or nil, {
-            key = C.make_scope(ctx, send.identity, C.identity_key(send.identity)),
+        local send_scope = C.make_scope(ctx, send.identity, C.identity_key(send.identity))
+        local send_button = B.flat_button(ctx, "FX " .. tostring(send.send_ref.send_id), cmd and cmd.action_id or nil, {
+            key = send_scope:child("base"),
             width = ui.grow(),
             height = ui.fixed(18),
             padding = { left = 6, top = 0, right = 6, bottom = 0 },
             font_size = 10,
             background = p.surface_inset,
             border = nil,
+        })
+        C.push(children, P.wrap_node(ctx, send_scope, send.identity, send_button, {
+            width = ui.grow(),
+            height = ui.fixed(18),
         }))
     end
     if #children == 0 then return nil end
@@ -279,6 +285,8 @@ function M.lower(strip, ctx, selection)
         height = ui.grow(),
     })
     C.push(children, lower_meter_fader(strip, ctx, scope))
+
+    P.overlay_children(ctx, scope, strip.identity, children)
 
     return ui.column {
         key = scope,

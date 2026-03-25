@@ -218,6 +218,96 @@ function M.selection_is_device(selection, device_ref)
         and M.semantic_ref_eq(selection.device_ref, device_ref)
 end
 
+local function normalize_compile_status(raw)
+    if raw == nil then return { state = "ready" } end
+    if type(raw) == "string" then return { state = raw } end
+    if type(raw) ~= "table" then return { state = tostring(raw) } end
+    return {
+        state = raw.state or raw.kind or "ready",
+        detail = raw.detail or raw.message,
+        label = raw.label,
+        progress = raw.progress,
+    }
+end
+
+function M.compile_target_key(target)
+    if target == nil then return nil end
+    if type(target) == "string" then return target end
+    if type(target) ~= "table" then return tostring(target) end
+
+    if target.key_space ~= nil and target.ref ~= nil then
+        local ref = target.ref
+        if ref.kind == "IdentitySemantic" then
+            return M.encode_semantic_ref(ref.semantic_ref)
+        elseif ref.kind == "IdentityChain" then
+            return M.encode_chain_ref(ref.chain_ref)
+        elseif ref.kind == "IdentityKey" then
+            return ref.stable_key
+        end
+    end
+
+    local k = target.kind
+    if k == "IdentitySemantic" then
+        return M.encode_semantic_ref(target.semantic_ref)
+    elseif k == "IdentityChain" then
+        return M.encode_chain_ref(target.chain_ref)
+    elseif k == "IdentityKey" then
+        return target.stable_key
+    elseif k == "TrackChain" or k == "DeviceNoteFX" or k == "DevicePostFX"
+        or k == "LayerChain" or k == "SelectorBranchChain" or k == "SplitBandChain" then
+        return M.encode_chain_ref(target)
+    elseif k == "ProjectRef" or k == "TrackRef" or k == "DeviceRef"
+        or k == "LayerRef" or k == "SelectorBranchRef" or k == "SplitBandRef"
+        or k == "GridModuleRef" or k == "ClipRef" or k == "NoteRef"
+        or k == "SceneRef" or k == "SlotRef" or k == "SendRef"
+        or k == "ParamRef" or k == "ModulatorRef" then
+        return M.encode_semantic_ref(target)
+    end
+
+    return tostring(target)
+end
+
+function M.compile_status(ctx, target)
+    local key = M.compile_target_key(target)
+    local raw = nil
+
+    if ctx and ctx.compile_status_by_ref and key ~= nil then
+        raw = ctx.compile_status_by_ref[key]
+    end
+
+    if raw == nil and key == "project" and ctx and ctx.session_compile_pending then
+        raw = {
+            state = "compiling",
+            detail = ctx.session_compile_detail or "Compiling audio callback…",
+        }
+    end
+
+    return normalize_compile_status(raw)
+end
+
+function M.compile_state(ctx, target)
+    return M.compile_status(ctx, target).state
+end
+
+function M.compile_is_pending(status)
+    local s = type(status) == "table" and status.state or status
+    return s == "pending" or s == "queued" or s == "compiling"
+end
+
+function M.compile_is_failed(status)
+    local s = type(status) == "table" and status.state or status
+    return s == "failed" or s == "error" or s == "degraded"
+end
+
+function M.compile_label(status)
+    local s = type(status) == "table" and status.state or status
+    if s == nil or s == "ready" then return "READY" end
+    if s == "pending" or s == "compiling" then return "COMPILING" end
+    if s == "queued" then return "QUEUED" end
+    if s == "failed" or s == "error" or s == "degraded" then return "DEGRADED" end
+    return string.upper(tostring(s))
+end
+
 function M.surface_mode(ctx)
     local active = ctx and ctx.active_surface
     if active == nil then return "arrange" end
@@ -243,6 +333,7 @@ function M.make_palette(ui)
         surface_control_hover = ui.rgba(0.165, 0.192, 0.220, 1.0), -- #2A3138
         surface_selected   = ui.rgba(0.165, 0.145, 0.110, 1.0),  -- warm selection tint
         surface_accent_soft = ui.rgba(0.160, 0.140, 0.100, 1.0), -- subtle warm accent
+        surface_pending    = ui.rgba(0.149, 0.129, 0.094, 1.0),  -- calm compile placeholder
 
         -- Region surfaces
         surface_arrangement       = ui.rgba(0.067, 0.075, 0.082, 1.0),  -- app bg
@@ -270,6 +361,7 @@ function M.make_palette(ui)
         border_focus        = ui.rgba(0.839, 0.639, 0.353, 1.0), -- #D6A35A
         border_authored     = ui.rgba(1.0, 1.0, 1.0, 0.18),
         border_warning      = ui.rgba(0.839, 0.639, 0.353, 1.0), -- #D6A35A
+        border_pending      = ui.rgba(0.839, 0.639, 0.353, 0.82),
         border_record       = ui.rgba(1.0, 0.365, 0.365, 1.0),   -- #FF5D5D
 
         -- Text
@@ -278,6 +370,8 @@ function M.make_palette(ui)
         text_muted    = ui.rgba(0.490, 0.529, 0.569, 1.0),  -- #7D8791
         text_disabled = ui.rgba(0.361, 0.400, 0.439, 1.0),  -- #5C6670
         text_warning  = ui.rgba(0.839, 0.639, 0.353, 1.0),  -- #D6A35A
+        text_pending  = ui.rgba(0.918, 0.816, 0.639, 1.0),
+        text_success  = ui.rgba(0.612, 0.894, 0.710, 1.0),
 
         -- Semantic accent
         track_accent  = ui.rgba(0.839, 0.639, 0.353, 1.0),  -- #D6A35A (warm amber)
@@ -287,6 +381,8 @@ function M.make_palette(ui)
         state_record  = ui.rgba(1.0, 0.365, 0.365, 1.0),    -- #FF5D5D
         state_solo    = ui.rgba(1.0, 0.847, 0.302, 1.0),    -- #FFD84D
         state_mute    = ui.rgba(0.498, 0.533, 0.569, 1.0),  -- #7F8891
+        state_pending = ui.rgba(0.918, 0.816, 0.639, 1.0),
+        state_ready   = ui.rgba(0.341, 0.820, 0.478, 1.0),
     }
 end
 

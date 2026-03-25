@@ -28,14 +28,7 @@ function V.LauncherView:to_decl(ctx)
             C.push(column_children, column.lower_column(col, stop_cell, ctx, ctx.selection))
         end
 
-        return ui.column {
-            key = scope,
-            width = ui.grow(),
-            height = ui.grow(),
-            gap = 0,
-            background = p.surface_panel,
-            border = ui.border { right = 1, color = p.border_separator },
-        } {
+        local children = {
             ui.row {
                 key = scope:child("workspace"),
                 width = ui.grow(),
@@ -103,6 +96,16 @@ function V.LauncherView:to_decl(ctx)
                 },
             },
         }
+        P.overlay_children(ctx, scope, self.identity, children)
+
+        return ui.column {
+            key = scope,
+            width = ui.grow(),
+            height = ui.grow(),
+            gap = 0,
+            background = p.surface_panel,
+            border = ui.border { right = 1, color = p.border_separator },
+        } (children)
     end, function(err)
         return P.fallback_node(ctx, C.identity_key(self.identity), "view.launcher_view.to_decl", tostring(err))
     end)

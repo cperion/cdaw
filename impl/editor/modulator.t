@@ -5,11 +5,11 @@ local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local L = F.L
-diag.status("editor.modulator.lower", "partial")
+diag.status("editor.modulator.lower", "real")
 
 
 function D.Editor.Modulator:lower(ctx)
-    return diag.wrap(ctx, "editor.modulator.lower", "partial", function()
+    return diag.wrap(ctx, "editor.modulator.lower", "real", function()
         -- Build the modulator node
         local params = diag.map(ctx, "editor.modulator.lower.params",
             self.params, function(p) return p:lower(ctx) end)

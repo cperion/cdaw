@@ -5,7 +5,7 @@ local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local L = F.L
-diag.status("editor.clip.lower", "partial")
+diag.status("editor.clip.lower", "real")
 diag.status("editor.note_region.lower", "real")
 
 
@@ -50,7 +50,7 @@ function D.Editor.NoteRegion:lower(ctx)
 end
 
 function D.Editor.Clip:lower(ctx)
-    return diag.wrap(ctx, "editor.clip.lower", "partial", function()
+    return diag.wrap(ctx, "editor.clip.lower", "real", function()
         -- Convert content
         local content
         if self.content.kind == "AudioContent" then

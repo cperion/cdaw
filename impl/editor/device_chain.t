@@ -5,11 +5,11 @@ local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local L = F.L
-diag.status("editor.device_chain.lower", "partial")
+diag.status("editor.device_chain.lower", "real")
 
 
 function D.Editor.DeviceChain:lower(ctx)
-    return diag.wrap(ctx, "editor.device_chain.lower", "partial", function()
+    return diag.wrap(ctx, "editor.device_chain.lower", "real", function()
         -- Lower each device to an Authored.Node, collecting into a serial graph.
         local nodes = diag.map(ctx, "editor.device_chain.lower.device",
             self.devices, function(dev) return dev:lower(ctx) end)

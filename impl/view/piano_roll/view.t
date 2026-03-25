@@ -72,8 +72,9 @@ local function build_note_row(notes, pitch, piano_roll, variant, ctx, scope)
 
         local select_cmd = C.find_command(note.commands, V.PRCCSelectNotes)
         local note_width = math.max(22, (note.end_beats - note.start_beats) * width_per_beat)
-        C.push(children, ui.button {
-            key = C.make_scope(ctx, note.identity, C.identity_key(note.identity)),
+        local note_scope = C.make_scope(ctx, note.identity, C.identity_key(note.identity))
+        local note_button = ui.button {
+            key = note_scope:child("base"),
             width = ui.fixed(note_width),
             height = ui.fixed(variant.note_h),
             padding = { left = 4, top = 0, right = 4, bottom = 0 },
@@ -83,7 +84,11 @@ local function build_note_row(notes, pitch, piano_roll, variant, ctx, scope)
             border = C.border(ctx, note.selected and p.border_selected or p.clip_border, 1),
             text_color = p.text_primary,
             font_size = variant.font_size,
-        })
+        }
+        C.push(children, P.wrap_node(ctx, note_scope, note.identity, note_button, {
+            width = ui.fixed(note_width),
+            height = ui.fixed(variant.note_h),
+        }))
         placed_x = start_offset + note_width
         C.push(children, ui.spacer {
             key = scope:child("gap_" .. tostring(i)),
@@ -148,8 +153,9 @@ local function lower_velocity_lane(piano_roll, variant, ctx, scope)
             width = ui.fixed(0),
             height = ui.fixed(bar_max_h - h),
         })
-        C.push(children, ui.button {
-            key = C.make_scope(ctx, bar.identity, C.identity_key(bar.identity)),
+        local bar_scope = C.make_scope(ctx, bar.identity, C.identity_key(bar.identity))
+        local bar_button = ui.button {
+            key = bar_scope:child("base"),
             width = ui.fixed(16),
             height = ui.fixed(h),
             padding = { left = 0, top = 0, right = 0, bottom = 0 },
@@ -157,7 +163,11 @@ local function lower_velocity_lane(piano_roll, variant, ctx, scope)
             action = cmd and cmd.action_id or nil,
             background = bar.selected and p.clip_selected_bg or p.clip_bg,
             border = C.border(ctx, bar.selected and p.border_selected or p.clip_border, 1),
-        })
+        }
+        C.push(children, P.wrap_node(ctx, bar_scope, bar.identity, bar_button, {
+            width = ui.fixed(16),
+            height = ui.fixed(h),
+        }))
         placed_x = x + 16
         C.push(children, ui.spacer {
             key = scope:child("gap_" .. tostring(i)),
@@ -233,13 +243,7 @@ function V.PianoRollView:to_decl(ctx)
         local ruler_text = variant.is_editor and "1.1.1      1.1.2      1.1.3      1.1.4      1.2"
             or string.format("%.1f      %.1f      %.1f      %.1f", self.grid.visible_start_beats, self.grid.visible_start_beats + 1, self.grid.visible_start_beats + 2, self.grid.visible_start_beats + 3)
 
-        return ui.column {
-            key = scope,
-            width = ui.grow(),
-            height = ui.grow(),
-            gap = 0,
-            background = p.surface_detail,
-        } {
+        local children = {
             ui.row {
                 key = scope:child("header"),
                 width = ui.grow(),
@@ -298,6 +302,15 @@ function V.PianoRollView:to_decl(ctx)
             },
             velocity_row,
         }
+        P.overlay_children(ctx, scope, self.identity, children)
+
+        return ui.column {
+            key = scope,
+            width = ui.grow(),
+            height = ui.grow(),
+            gap = 0,
+            background = p.surface_detail,
+        } (children)
     end, function(err)
         return P.fallback_node(ctx, C.identity_key(self.identity), "view.piano_roll_view.to_decl", tostring(err))
     end)

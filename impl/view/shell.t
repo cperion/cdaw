@@ -208,14 +208,8 @@ function V.Shell:to_decl(ctx)
         local main = lower_main_area(self.main_area, ctx)
         local status = self.status_bar and status_bar.lower(self.status_bar, ctx) or nil
 
-        return ui.column {
-            key = ui.scope("app_shell/root"),
-            width = ui.grow(),
-            height = ui.grow(),
-            gap = 0,
-            background = p.surface_app,
-            padding = 0,
-        } {
+        local scope = ui.scope("app_shell/root")
+        local children = {
             self.transport:to_decl(ctx),
             ui.row {
                 key = ui.scope("app_shell/workspace"),
@@ -230,6 +224,16 @@ function V.Shell:to_decl(ctx)
             },
             status,
         }
+        P.overlay_children(ctx, scope, "shell", children)
+
+        return ui.column {
+            key = scope,
+            width = ui.grow(),
+            height = ui.grow(),
+            gap = 0,
+            background = p.surface_app,
+            padding = 0,
+        } (children)
     end, function(err)
         return P.fallback_node(ctx, "shell/root", "view.shell.to_decl", tostring(err))
     end)

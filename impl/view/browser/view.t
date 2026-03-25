@@ -24,8 +24,9 @@ function V.BrowserView:to_decl(ctx)
         for i = 1, #self.sources do
             local src = self.sources[i]
             local cmd = C.find_command(src.commands, V.BCCSelectSource)
-            C.push(source_children, B.flat_button(ctx, src.label, cmd and cmd.action_id or nil, {
-                key = C.make_scope(ctx, src.identity, C.identity_key(src.identity)),
+            local src_scope = C.make_scope(ctx, src.identity, C.identity_key(src.identity))
+            local src_node = B.flat_button(ctx, src.label, cmd and cmd.action_id or nil, {
+                key = src_scope:child("base"),
                 width = ui.grow(),
                 height = ui.fixed(22),
                 padding = { left = 6, top = 0, right = 6, bottom = 0 },
@@ -33,6 +34,10 @@ function V.BrowserView:to_decl(ctx)
                 border = C.border(ctx, src.selected and p.border_selected or p.border_subtle, 1),
                 text_color = p.text_primary,
                 font_size = 11,
+            })
+            C.push(source_children, P.wrap_node(ctx, src_scope, src.identity, src_node, {
+                width = ui.grow(),
+                height = ui.fixed(22),
             }))
         end
 
@@ -42,15 +47,7 @@ function V.BrowserView:to_decl(ctx)
             C.push(section_children, section.lower(self.sections[i], ctx, scope, i))
         end
 
-        return ui.column {
-            key = scope,
-            width = ui.fixed(200),
-            height = ui.grow(),
-            gap = 4,
-            background = p.surface_sidebar,
-            border = ui.border { left = 1, color = p.border_separator },
-            padding = { left = 6, top = 6, right = 6, bottom = 6 },
-        } {
+        local children = {
             T.section_title(ctx, "EVERYTHING", scope:child("title")),
             -- Search field
             ui.label {
@@ -79,6 +76,17 @@ function V.BrowserView:to_decl(ctx)
                 vertical = true,
             } (section_children),
         }
+        P.overlay_children(ctx, scope, self.identity, children)
+
+        return ui.column {
+            key = scope,
+            width = ui.fixed(200),
+            height = ui.grow(),
+            gap = 4,
+            background = p.surface_sidebar,
+            border = ui.border { left = 1, color = p.border_separator },
+            padding = { left = 6, top = 6, right = 6, bottom = 6 },
+        } (children)
     end, function(err)
         return P.fallback_node(ctx, C.identity_key(self.identity), "view.browser_view.to_decl", tostring(err))
     end)

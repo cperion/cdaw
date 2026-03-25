@@ -10,7 +10,7 @@ local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local L = F.L
-diag.status("editor.device.lower", "partial")
+diag.status("editor.device.lower", "real")
 
 
 -- ── Helper: lower a NativeDeviceBody's fields into an Authored.Node ──
@@ -250,7 +250,7 @@ end
 -- ═══════════════════════════════════════════════════════════
 
 function D.Editor.Device:lower(ctx)
-    return diag.wrap(ctx, "editor.device.lower", "partial", function()
+    return diag.wrap(ctx, "editor.device.lower", "real", function()
         local k = self.kind
 
         if k == "NativeDevice" then

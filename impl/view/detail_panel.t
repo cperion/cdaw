@@ -10,6 +10,10 @@ function M.lower(detail_panel, ctx)
     if detail_panel == nil then return nil end
     if detail_panel.kind == "DeviceChainDetail" then
         return detail_panel.chain:to_decl(ctx)
+    elseif detail_panel.kind == "DeviceDetail" then
+        return detail_panel.device:to_decl(ctx)
+    elseif detail_panel.kind == "GridDetail" then
+        return detail_panel.patch:to_decl(ctx)
     elseif detail_panel.kind == "PianoRollDetail" then
         return detail_panel.piano_roll:to_decl(ctx)
     end

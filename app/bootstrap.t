@@ -15,6 +15,9 @@ function M.make_view_ctx(ui)
         ui = ui,
         dynamic_status_params = true,
         diagnostics = {},
+        session_compile_pending = false,
+        session_compile_detail = nil,
+        compile_status_by_ref = {},
         palette = C.make_palette(ui),
         track_names = {
             [1] = "Inst 1",

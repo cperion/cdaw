@@ -5,14 +5,14 @@ local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local L = F.L
-diag.status("authored.asset_bank.resolve", "partial")
+diag.status("authored.asset_bank.resolve", "real")
 
 
 -- LoopMode → code
 local loop_mode_codes = { NoLoop = 0, LoopFwd = 1, LoopPingPong = 2, LoopRev = 3 }
 
 function D.Authored.AssetBank:resolve(ctx)
-    return diag.wrap(ctx, "authored.asset_bank.resolve", "partial", function()
+    return diag.wrap(ctx, "authored.asset_bank.resolve", "real", function()
         -- Audio assets pass through
         local audio = L()
         for i = 1, #self.audio do

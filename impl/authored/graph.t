@@ -5,7 +5,7 @@ local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local L = F.L
-diag.status("authored.graph.resolve", "partial")
+diag.status("authored.graph.resolve", "real")
 
 
 -- Layout → code: Serial=0, Free=1, Parallel=2, Switched=3, Split=4
@@ -23,7 +23,7 @@ local hint_codes = {
 }
 
 function D.Authored.Graph:resolve(ctx)
-    return diag.wrap(ctx, "authored.graph.resolve", "partial", function()
+    return diag.wrap(ctx, "authored.graph.resolve", "real", function()
         local layout_code = layout_codes[self.layout.kind or self.layout] or 0
         local domain_code = domain_codes[self.domain.kind or self.domain] or 1
 

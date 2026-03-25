@@ -31,15 +31,7 @@ function V.InspectorView:to_decl(ctx)
             end
         end
 
-        return ui.column {
-            key = scope,
-            width = ui.fixed(160),
-            height = ui.grow(),
-            gap = 4,
-            background = p.surface_sidebar,
-            border = ui.border { right = 1, color = p.border_separator },
-            padding = { left = 6, top = 6, right = 6, bottom = 6 },
-        } {
+        local children = {
             T.section_title(ctx, "INSPECTOR", scope:child("title")),
             ui.row {
                 key = scope:child("tabs"),
@@ -54,6 +46,17 @@ function V.InspectorView:to_decl(ctx)
                 vertical = true,
             } (content_children),
         }
+        P.overlay_children(ctx, scope, self.identity, children)
+
+        return ui.column {
+            key = scope,
+            width = ui.fixed(160),
+            height = ui.grow(),
+            gap = 4,
+            background = p.surface_sidebar,
+            border = ui.border { right = 1, color = p.border_separator },
+            padding = { left = 6, top = 6, right = 6, bottom = 6 },
+        } (children)
     end, function(err)
         return P.fallback_node(ctx, C.identity_key(self.identity), "view.inspector_view.to_decl", tostring(err))
     end)

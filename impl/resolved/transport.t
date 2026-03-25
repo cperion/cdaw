@@ -5,7 +5,7 @@ local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local L = F.L
-diag.status("resolved.tempo_map.classify", "partial")
+diag.status("resolved.tempo_map.classify", "real")
 diag.status("resolved.transport.classify", "real")
 
 
@@ -30,7 +30,7 @@ function D.Resolved.Transport:classify(ctx)
 end
 
 function D.Resolved.TempoMap:classify(ctx)
-    return diag.wrap(ctx, "resolved.tempo_map.classify", "partial", function()
+    return diag.wrap(ctx, "resolved.tempo_map.classify", "real", function()
         local segments = L()
         for i = 1, #self.segments do
             local s = self.segments[i]

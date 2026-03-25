@@ -5,7 +5,7 @@ local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local L = F.L
-diag.status("authored.param.resolve", "partial")
+diag.status("authored.param.resolve", "real")
 
 
 -- Combine mode → code: Replace=0, Add=1, Multiply=2, ModMin=3, ModMax=4
@@ -20,7 +20,7 @@ local smoothing_codes = { NoSmoothing = 0, Lag = 1 }
 local interp_codes = { Linear = 0, Smoothstep = 1, Hold = 2 }
 
 function D.Authored.Param:resolve(ctx)
-    return diag.wrap(ctx, "authored.param.resolve", "partial", function()
+    return diag.wrap(ctx, "authored.param.resolve", "real", function()
         -- Determine source ref
         local source_kind = 0  -- 0 = static
         local source_value = self.default_value

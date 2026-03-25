@@ -5,11 +5,11 @@ local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local L = F.L
-diag.status("authored.scene.resolve", "partial")
+diag.status("authored.scene.resolve", "real")
 
 
 function D.Authored.Scene:resolve(ctx)
-    return diag.wrap(ctx, "authored.scene.resolve", "partial", function()
+    return diag.wrap(ctx, "authored.scene.resolve", "real", function()
         local slots = L()
         for i = 1, #self.slots do
             local s = self.slots[i]
