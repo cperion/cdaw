@@ -17,12 +17,6 @@ function D.Classified.Track:schedule(ctx)
         local volume = self.volume:schedule(ctx)
         local pan = self.pan:schedule(ctx)
 
-        -- Collect send IDs for this track
-        local send_ids = L()
-        for i = 1, #self.send_ids do
-            send_ids:insert(self.send_ids[i])
-        end
-
         -- Buffer allocation comes from ctx (set by project.schedule)
         local work_buf = (ctx and ctx._track_work_buf and ctx._track_work_buf[self.id]) or 0
         local out_left = (ctx and ctx._master_left) or 0

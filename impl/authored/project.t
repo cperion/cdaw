@@ -254,14 +254,18 @@ function D.Authored.Project:resolve(caller_ctx)
 
         -- Resolve tracks (which recursively flatten their device graphs)
         local tracks = L()
+        local all_clips = L()
+        local all_slots = L()
+        local all_sends = L()
         for i = 1, #self.tracks do
             local atrack = self.tracks[i]
 
             -- Flatten the track's device graph
             local device_graph = flatten_graph(atrack.device_graph, ctx)
 
-            -- Resolve track-level params (volume, pan)
-            -- Record flat-table indices for classify-time lookup
+            -- Resolve track-level params (volume, pan) into the same flat
+            -- param table used by all later phases. Tracks carry the flat-table
+            -- indices directly so classify does not need any side lookup maps.
             local vol = atrack.volume:resolve(ctx)
             local vol_flat_idx = #ctx._all_params
             ctx:intern_param(D.Resolved.Param(
@@ -277,26 +281,22 @@ function D.Authored.Project:resolve(caller_ctx)
                 pan.source, pan.combine_code, pan.smoothing_code, pan.smoothing_ms
             ))
 
-            -- Store flat indices keyed by track id for classify
-            ctx._track_vol_idx = ctx._track_vol_idx or {}
-            ctx._track_pan_idx = ctx._track_pan_idx or {}
-            ctx._track_vol_idx[atrack.id] = vol_flat_idx
-            ctx._track_pan_idx[atrack.id] = pan_flat_idx
-
-            -- Resolve clips
-            local clip_base = 0
+            -- Resolve clips / slots / sends into explicit project-level flat
+            -- tables. Track fields point into these ranges directly.
+            local clip_base = #all_clips
             local clips_resolved = diag.map(ctx, "authored.project.resolve.clips",
                 atrack.clips, function(c) return c:resolve(ctx) end)
+            for j = 1, #clips_resolved do all_clips:insert(clips_resolved[j]) end
 
-            -- Resolve slots
+            local slot_base = #all_slots
             local slots_resolved = diag.map(ctx, "authored.project.resolve.slots",
                 atrack.launcher_slots, function(s) return s:resolve(ctx) end)
+            for j = 1, #slots_resolved do all_slots:insert(slots_resolved[j]) end
 
-            -- Resolve sends
+            local send_base = #all_sends
             local sends_resolved = diag.map(ctx, "authored.project.resolve.sends",
                 atrack.sends, function(s) return s:resolve(ctx) end)
-            local send_ids = L()
-            for j = 1, #sends_resolved do send_ids:insert(sends_resolved[j].id) end
+            for j = 1, #sends_resolved do all_sends:insert(sends_resolved[j]) end
 
             -- Encode input
             local ik, ia0, ia1 = 0, 0, 0
@@ -311,11 +311,11 @@ function D.Authored.Project:resolve(caller_ctx)
             tracks:insert(D.Resolved.Track(
                 atrack.id, atrack.name, atrack.channels,
                 ik, ia0, ia1,
-                vol.id, pan.id,
+                vol_flat_idx, pan_flat_idx,
                 device_graph.id,
                 clip_base, #clips_resolved,
-                0, #slots_resolved,
-                send_ids,
+                slot_base, #slots_resolved,
+                send_base, #sends_resolved,
                 atrack.output_track_id, atrack.group_track_id,
                 atrack.muted, atrack.soloed,
                 atrack.armed, atrack.monitor_input,
@@ -340,11 +340,14 @@ function D.Authored.Project:resolve(caller_ctx)
             caller_ctx.diagnostics = ctx.diagnostics
         end
 
-        local result = D.Resolved.Project(
+        return D.Resolved.Project(
             transport,
             tempo_map,
             tracks,
             scenes,
+            all_clips,
+            all_slots,
+            all_sends,
             to_list(ctx._all_graphs),
             to_list(ctx._all_graph_ports),
             to_list(ctx._all_nodes),
@@ -356,10 +359,6 @@ function D.Authored.Project:resolve(caller_ctx)
             to_list(ctx._all_curves),
             assets
         )
-        -- Attach track param flat-indices for classify phase
-        result._track_vol_idx = ctx._track_vol_idx or {}
-        result._track_pan_idx = ctx._track_pan_idx or {}
-        return result
     end, function()
         return F.resolved_project()
     end)

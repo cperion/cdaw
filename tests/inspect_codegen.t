@@ -267,13 +267,14 @@ print(string.format("  Param bindings: %d", #scheduled.param_bindings))
 -- ════════════════════════════════════════════════════════════════
 print("\n── Phase 5: Scheduled → Kernel (Terra code generation) ──")
 local kernel = scheduled:compile(ctx)
+local render = kernel:entry_fn()
 
 lines = {}
-if kernel._render_fn then
+if render then
     print("  ✅ Compiled render function:")
     print("")
     -- Print the generated Terra IR
-    local fn_str = tostring(kernel._render_fn)
+    local fn_str = tostring(render)
     for line in fn_str:gmatch("[^\n]+") do
         lines[#lines+1] = line
     end
@@ -299,7 +300,7 @@ print("\n── Phase 6: Execute compiled render ──")
 local FRAMES = 256
 local out_l = terralib.new(float[FRAMES])
 local out_r = terralib.new(float[FRAMES])
-kernel._render_fn(out_l, out_r, FRAMES)
+render(out_l, out_r, FRAMES)
 
 print(string.format("  Rendered %d frames", FRAMES))
 

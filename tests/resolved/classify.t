@@ -54,8 +54,8 @@ end
 print("3. resolved.track.classify")
 do
     local t = D.Resolved.Track(5, "Bass", 2, 1, 1, 0, 0, 1, 10,
-        0, 2, 0, 1, L{8}, nil, nil, true, false, false, false, true)
-    -- Build classify ctx with classified params and track indices
+        0, 2, 0, 1, 0, 1, nil, nil, true, false, false, false, true)
+    -- Build classify ctx with classified params
     local vol_binding = D.Classified.Binding(0, 3)
     local pan_binding = D.Classified.Binding(0, 4)
     local ctx = {
@@ -64,8 +64,6 @@ do
             [1] = D.Classified.Param(0, 0, 1, 0, 4, vol_binding, 0, 0, 0, 0, 0, 0),
             [2] = D.Classified.Param(1, 0, 0, -1, 1, pan_binding, 0, 0, 0, 0, 0, 0),
         },
-        _track_vol_idx = {[5] = 0},
-        _track_pan_idx = {[5] = 1},
     }
     local r = t:classify(ctx)
     check(r.id == 5, "track id")

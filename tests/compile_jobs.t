@@ -103,10 +103,13 @@ end
 print("Test 2: NodeJob SineOsc compile")
 do
     local BS = 64
+    local sr = 22050.0
+    local freq = 440.0
     local ctx = make_compile_ctx(4, BS,
-        {[1] = 440.0},
+        {[1] = freq},
         {[1] = D.Scheduled.Binding(0, 0)}
     )
+    ctx.sample_rate = sr
 
     local nj = D.Scheduled.NodeJob(
         2, 28,         -- id=2, kind=SineOsc
@@ -121,6 +124,8 @@ do
 
     -- SineOsc at 440Hz: sample[0] = sin(0) = 0
     check(approx(out[0], 0.0, 0.01), "SineOsc[0] ≈ 0, got " .. out[0])
+    check(approx(out[1], math.sin(2.0 * math.pi * freq / sr), 0.01),
+        "SineOsc[1] should respect ctx.sample_rate")
     -- Sample should be non-zero somewhere
     local found_nonzero = false
     for i = 1, BS - 1 do
@@ -370,14 +375,10 @@ do
     local bufs = ctx.bufs_sym
     local frames = ctx.frames_sym
 
-    -- Fill buffer with 1.0 (simulating source), then apply clip gain
-    local setup = quote
-        for i = 0, frames do [bufs][i] = 1.0f end
-    end
-
-    local out = run_render(ctx, setup, q, 4, BS)
-    check(approx(out[0], 0.6), "ClipJob: 1.0 * gain(0.6) = 0.6, got " .. out[0])
-    check(approx(out[16], 0.6), "ClipJob mid: 0.6, got " .. out[16])
+    -- ClipJob is now a scheduled source: no pre-filled input required.
+    local out = run_render(ctx, quote end, q, 4, BS)
+    check(approx(out[0], 0.6), "ClipJob source: gain(0.6) = 0.6, got " .. out[0])
+    check(approx(out[16], 0.6), "ClipJob source mid: 0.6, got " .. out[16])
 
     print("  PASS")
 end
@@ -396,6 +397,11 @@ do
                 D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0.0), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.DeviceChain(L{
                     D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
+                        9, "Square1", D.Authored.SquareOsc(),
+                        L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
+                        L(), nil, nil, nil, true, nil
+                    )),
+                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                         10, "Saturator", D.Authored.SaturatorNode(D.Authored.Tanh),
                         L{D.Editor.ParamValue(0, "drive", 1, 0.1, 10, D.Editor.StaticValue(2.0), D.Editor.Replace, D.Editor.NoSmoothing)},
                         L(), nil, nil, nil, true, nil
@@ -412,6 +418,11 @@ do
                 D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0.0), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.DeviceChain(L{
+                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
+                        19, "Square2", D.Authored.SquareOsc(),
+                        L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
+                        L(), nil, nil, nil, true, nil
+                    )),
                     D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                         20, "Clipper", D.Authored.Clipper(D.Authored.HardClipM),
                         L{},
@@ -433,26 +444,22 @@ do
     local s = c:schedule(ctx)
     local k = s:compile(ctx)
 
+    local render = k and k:entry_fn() or nil
     check(k ~= nil, "kernel compiled")
-    check(k._render_fn ~= nil, "render function exists")
+    check(render ~= nil, "render function exists")
 
-    if k._render_fn then
+    if render then
         local BS = 128
         local out_l = terralib.new(float[BS])
         local out_r = terralib.new(float[BS])
-        k._render_fn(out_l, out_r, BS)
+        render(out_l, out_r, BS)
 
-        -- T1: DC 1.0 → tanh(1.0 * 2.0) → *0.3 → *1.0 (vol)
-        -- tanh(2.0) ≈ 0.964
-        -- T1 contribution: 0.964 * 0.3 * 1.0 ≈ 0.289
-        --
-        -- T2: DC 1.0 → clip(1.0) = 1.0 → *0.5 (vol)
-        -- T2 contribution: 1.0 * 0.5 = 0.5
-        --
-        -- Total: ≈ 0.789
-        local total = math.tanh(2.0) * 0.3 * 1.0 + 1.0 * 0.5
+        -- Each track now reaches master through OutputJob with equal-power
+        -- center pan, so each channel gets a cos(pi/4) factor.
+        local center = math.cos(math.pi / 4)
+        local total = (math.tanh(2.0) * 0.3 * 1.0 + 1.0 * 0.5) * center
         check(approx(out_l[0], total, 0.01),
-            "2-track mix: " .. total .. ", got " .. out_l[0])
+            "2-track center-pan mix: " .. total .. ", got " .. out_l[0])
         check(out_l[0] == out_r[0], "L == R (both center pan)")
     end
 

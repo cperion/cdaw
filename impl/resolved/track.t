@@ -10,14 +10,14 @@ diag.status("resolved.track.classify", "real")
 
 function D.Resolved.Track:classify(ctx)
     return diag.wrap(ctx, "resolved.track.classify", "real", function()
-        -- Look up classified volume/pan bindings by flat-table index.
-        -- These indices were recorded during resolve and carried through.
+        -- Track volume/pan now point directly into the classified param table
+        -- by flat-table index. No side lookup maps are needed.
         local volume_binding = F.classified_binding(0, 0)
         local pan_binding = F.classified_binding(0, 0)
 
         if ctx and ctx._classified_params then
-            local vol_idx = ctx._track_vol_idx and ctx._track_vol_idx[self.id]
-            local pan_idx = ctx._track_pan_idx and ctx._track_pan_idx[self.id]
+            local vol_idx = self.volume_param_index
+            local pan_idx = self.pan_param_index
             if vol_idx then
                 local cp = ctx._classified_params[vol_idx + 1]
                 if cp then volume_binding = cp.base_value end
@@ -41,7 +41,8 @@ function D.Resolved.Track:classify(ctx)
             self.clip_count,
             self.first_slot,
             self.slot_count,
-            self.send_ids,
+            self.first_send,
+            self.send_count,
             self.output_track_id,
             self.group_track_id,
             self.muted,

@@ -19,12 +19,28 @@ print("1. scheduled.binding.compile_value")
 do
     -- compile_value expects ctx.literals as Classified.Literal objects
     local b = D.Scheduled.Binding(0, 2)  -- literal, slot 2
+    local InitArray = float[2]
+    local BlockArray = float[2]
+    local SampleArray = float[2]
+    local EventArray = float[2]
+    local VoiceArray = float[2]
+    local init_sym = symbol(InitArray, "init_slots")
+    local block_sym = symbol(BlockArray, "block_slots")
+    local sample_sym = symbol(SampleArray, "sample_slots")
+    local event_sym = symbol(EventArray, "event_slots")
+    local voice_sym = symbol(VoiceArray, "voice_slots")
     local ctx = {diagnostics = {},
         literals = {
             [1] = D.Classified.Literal(0.25),
             [2] = D.Classified.Literal(0.5),
             [3] = D.Classified.Literal(0.75),
-        }}
+        },
+        init_slots_sym = init_sym,
+        block_slots_sym = block_sym,
+        sample_slots_sym = sample_sym,
+        event_slots_sym = event_sym,
+        voice_slots_sym = voice_sym,
+    }
     local q = b:compile_value(ctx)
     check(q ~= nil, "returned a quote")
     local val_fn = terra() : float return [q] end
@@ -35,6 +51,27 @@ do
     local q2 = b2:compile_value(ctx)
     local val_fn2 = terra() : float return [q2] end
     check(approx(val_fn2(), 0.25), "literal[0] = 0.25")
+
+    local bi = D.Scheduled.Binding(1, 1)
+    local bb = D.Scheduled.Binding(2, 1)
+    local bs = D.Scheduled.Binding(3, 1)
+    local be = D.Scheduled.Binding(4, 1)
+    local bv = D.Scheduled.Binding(5, 1)
+    local qi = bi:compile_value(ctx)
+    local qb = bb:compile_value(ctx)
+    local qs = bs:compile_value(ctx)
+    local qe = be:compile_value(ctx)
+    local qv = bv:compile_value(ctx)
+    local rate_fn = terra() : float
+        var [init_sym]; var [block_sym]; var [sample_sym]; var [event_sym]; var [voice_sym]
+        [init_sym][1] = 1.25f
+        [block_sym][1] = 2.25f
+        [sample_sym][1] = 3.25f
+        [event_sym][1] = 4.25f
+        [voice_sym][1] = 5.25f
+        return [qi] + [qb] + [qs] + [qe] + [qv]
+    end
+    check(approx(rate_fn(), 16.25), "non-literal rate classes read their slot arrays")
     print("  PASS")
 end
 
@@ -323,11 +360,11 @@ do
     local q = cj:compile(ctx)
     local render = terra([frames_sym])
         var [bufs_sym]
-        for i = 0, [frames_sym] do [bufs_sym][i] = 1.0f end
+        for i = 0, total do [bufs_sym][i] = 0.0f end
         [q]
         return [bufs_sym][0]
     end
-    check(approx(render(BS), 0.6), "1.0 * gain(0.6) = 0.6")
+    check(approx(render(BS), 0.6), "clip source * gain(0.6) = 0.6")
     print("  PASS")
 end
 
@@ -341,8 +378,12 @@ do
         D.Editor.Transport(44100, 128, 120, 0, 4, 4, D.Editor.QNone, false, nil),
         L{D.Editor.Track(1, "T1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
             D.Editor.ParamValue(0, "v", 1, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing),
-            D.Editor.ParamValue(1, "p", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
+            D.Editor.ParamValue(1, "p", 0, -1, 1, D.Editor.StaticValue(-1), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{
+                D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
+                    9, "Square", D.Authored.SquareOsc(),
+                    L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
+                    L(), nil, nil, nil, true, nil)),
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                     10, "G", D.Authored.GainNode(),
                     L{D.Editor.ParamValue(0, "g", 1, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing)},
@@ -356,15 +397,214 @@ do
     local r = a:resolve(ctx)
     local c = r:classify(ctx)
     local s = c:schedule(ctx)
+    check(#s.output_jobs >= 1, "scheduled output job exists")
+    check(s.steps[1].output_job >= 0, "first scheduled step drives output job")
     local k = s:compile(ctx)
+    local render = k and k:entry_fn() or nil
     check(k ~= nil, "kernel produced")
-    check(k._render_fn ~= nil, "render_fn exists")
-    if k._render_fn then
+    check(render ~= nil, "entry_fn exists")
+    if render then
         local out_l = terralib.new(float[128])
         local out_r = terralib.new(float[128])
-        k._render_fn(out_l, out_r, 128)
-        -- DC 1.0 → Gain(0.5) → Vol(0.8) = 0.4
-        check(approx(out_l[0], 0.4), "output = 0.4, got " .. out_l[0])
+        render(out_l, out_r, 128)
+        -- SquareOsc(100Hz, constant over this block) → Gain(0.5) → Vol(0.8) = 0.4,
+        -- then OutputJob pan=-1 sends it hard left.
+        check(approx(out_l[0], 0.4), "left output = 0.4, got " .. out_l[0])
+        check(approx(out_r[0], 0.0, 0.01), "right output = 0 via OutputJob pan, got " .. out_r[0])
+    end
+    print("  PASS")
+end
+
+-- ══════════════════════════════════════════
+-- 12. scheduled.project.compile — block-rate control slot
+-- ══════════════════════════════════════════
+print("12. scheduled.project.compile — block-rate control slot")
+do
+    local transport = D.Scheduled.Transport(44100, 64, 120, 0, 4, 4, 0, false, 0, 0)
+    local tempo_map = D.Scheduled.TempoMap(L{D.Scheduled.TempoSeg(0, 3840, 120, 0, (60.0/120) * 44100 / 960)})
+    local buffers = L{
+        D.Scheduled.Buffer(0, 1, false, true),
+        D.Scheduled.Buffer(1, 1, false, true),
+        D.Scheduled.Buffer(2, 1, false, false),
+    }
+    local tracks = L{
+        D.Scheduled.TrackPlan(1,
+            D.Scheduled.Binding(2, 0),
+            D.Scheduled.Binding(0, 1),
+            0, 0, 0,
+            0, 1,
+            2, -1, -1,
+            0, 1,
+            false)
+    }
+    local steps = L{D.Scheduled.Step(0, -1, 0, -1, -1, -1, -1, 0)}
+    local clip_jobs = L{D.Scheduled.ClipJob(1, 0, 0, 2, 0, 960, 0, D.Scheduled.Binding(0, 0), false, 0, 0, 0, 0)}
+    local output_jobs = L{D.Scheduled.OutputJob(2, 0, 1, D.Scheduled.Binding(2, 0), D.Scheduled.Binding(0, 1))}
+    local block_ops = L{D.Scheduled.BlockOp(0, 0, 0, 0, 0, D.Scheduled.Binding(0, 2), nil)}
+
+    local p = D.Scheduled.Project(
+        transport, tempo_map,
+        buffers, tracks, steps,
+        L(), L(),
+        L(), L(), output_jobs, clip_jobs, L(),
+        L(), L(),
+        L{D.Scheduled.Literal(1.0), D.Scheduled.Literal(-1.0), D.Scheduled.Literal(0.5)},
+        L(), L(), L(),
+        L(),
+        L(), block_ops, L(),
+        L(), L(), L(),
+        3, 0,
+        0, 1
+    )
+
+    local k = p:compile({diagnostics = {}})
+    local render = k and k:entry_fn() or nil
+    check(k ~= nil and render ~= nil, "manual scheduled project compiled")
+    if render then
+        local out_l = terralib.new(float[64])
+        local out_r = terralib.new(float[64])
+        render(out_l, out_r, 64)
+        check(approx(out_l[0], 0.5, 0.01), "block slot drives output gain to 0.5, got " .. out_l[0])
+        check(approx(out_r[0], 0.0, 0.01), "hard-left pan still applies, got " .. out_r[0])
+    end
+    print("  PASS")
+end
+
+-- ══════════════════════════════════════════
+-- 13. scheduled.project.compile — block curve interpolation
+-- ══════════════════════════════════════════
+print("13. scheduled.project.compile — block curve interpolation")
+do
+    local transport = D.Scheduled.Transport(44100, 64, 120, 0, 4, 4, 0, false, 0, 0)
+    local tempo_map = D.Scheduled.TempoMap(L{D.Scheduled.TempoSeg(0, 3840, 120, 0, (60.0/120) * 44100 / 960)})
+    local buffers = L{
+        D.Scheduled.Buffer(0, 1, false, true),
+        D.Scheduled.Buffer(1, 1, false, true),
+        D.Scheduled.Buffer(2, 1, false, false),
+    }
+    local tracks = L{
+        D.Scheduled.TrackPlan(1,
+            D.Scheduled.Binding(2, 0),
+            D.Scheduled.Binding(0, 1),
+            0, 0, 0,
+            0, 1,
+            2, -1, -1,
+            0, 1,
+            false)
+    }
+    local steps = L{D.Scheduled.Step(0, -1, 0, -1, -1, -1, -1, 0)}
+    local clip_jobs = L{D.Scheduled.ClipJob(1, 0, 0, 2, 0, 960, 0, D.Scheduled.Binding(0, 0), false, 0, 0, 0, 0)}
+    local output_jobs = L{D.Scheduled.OutputJob(2, 0, 1, D.Scheduled.Binding(2, 0), D.Scheduled.Binding(0, 1))}
+    local block_ops = L{D.Scheduled.BlockOp(1, 0, 2, 0, 0, D.Scheduled.Binding(0, 2), nil)}
+    local block_pts = L{D.Scheduled.BlockPt(0, 0.2), D.Scheduled.BlockPt(960, 0.8)}
+
+    local p = D.Scheduled.Project(
+        transport, tempo_map,
+        buffers, tracks, steps,
+        L(), L(),
+        L(), L(), output_jobs, clip_jobs, L(),
+        L(), L(),
+        L{D.Scheduled.Literal(1.0), D.Scheduled.Literal(-1.0), D.Scheduled.Literal(0.0)},
+        L(), L(), L(),
+        L(),
+        L(), block_ops, block_pts,
+        L(), L(), L(),
+        3, 0,
+        0, 1
+    )
+
+    local k0 = p:compile({diagnostics = {}, block_tick = 0})
+    local kMid = p:compile({diagnostics = {}, block_tick = 480})
+    local k1 = p:compile({diagnostics = {}, block_tick = 960})
+    local r0 = k0 and k0:entry_fn() or nil
+    local rMid = kMid and kMid:entry_fn() or nil
+    local r1 = k1 and k1:entry_fn() or nil
+    check(k0 ~= nil and r0 ~= nil, "curve project compile @ tick 0")
+    check(kMid ~= nil and rMid ~= nil, "curve project compile @ tick 480")
+    check(k1 ~= nil and r1 ~= nil, "curve project compile @ tick 960")
+    if r0 and rMid and r1 then
+        local out0L = terralib.new(float[64]); local out0R = terralib.new(float[64])
+        local outML = terralib.new(float[64]); local outMR = terralib.new(float[64])
+        local out1L = terralib.new(float[64]); local out1R = terralib.new(float[64])
+        r0(out0L, out0R, 64)
+        rMid(outML, outMR, 64)
+        r1(out1L, out1R, 64)
+        check(approx(out0L[0], 0.2, 0.01), "curve tick 0 -> gain 0.2, got " .. out0L[0])
+        check(approx(outML[0], 0.5, 0.02), "curve tick 480 -> interpolated gain 0.5, got " .. outML[0])
+        check(approx(out1L[0], 0.8, 0.01), "curve tick 960 -> gain 0.8, got " .. out1L[0])
+    end
+    print("  PASS")
+end
+
+-- ══════════════════════════════════════════
+-- 14. scheduled.project.compile — modulation routing
+-- ══════════════════════════════════════════
+print("14. scheduled.project.compile — modulation routing")
+do
+    local transport = D.Scheduled.Transport(44100, 64, 120, 0, 4, 4, 0, false, 0, 0)
+    local tempo_map = D.Scheduled.TempoMap(L{D.Scheduled.TempoSeg(0, 3840, 120, 0, (60.0/120) * 44100 / 960)})
+    local buffers = L{
+        D.Scheduled.Buffer(0, 1, false, true),
+        D.Scheduled.Buffer(1, 1, false, true),
+        D.Scheduled.Buffer(2, 1, false, false),
+    }
+    local tracks = L{
+        D.Scheduled.TrackPlan(1,
+            D.Scheduled.Binding(0, 2),
+            D.Scheduled.Binding(0, 1),
+            0, 0, 0,
+            0, 2,
+            2, -1, -1,
+            0, 1,
+            false)
+    }
+    local steps = L{
+        D.Scheduled.Step(0, -1, -1, -1, 0, -1, -1, -1),
+        D.Scheduled.Step(1, -1, 0, 0, -1, -1, -1, 0),
+    }
+    local node_jobs = L{D.Scheduled.NodeJob(10, 5, 2, 2, 0, 1, 0, 0, 0, 0, 0, 0)}
+    local clip_jobs = L{D.Scheduled.ClipJob(1, 0, 0, 2, 0, 960, 0, D.Scheduled.Binding(0, 0), false, 0, 0, 0, 0)}
+    local mod_jobs = L{D.Scheduled.ModJob(90, 10, false, 0, 1, 0, D.Scheduled.Binding(0, 3))}
+    local output_jobs = L{D.Scheduled.OutputJob(2, 0, 1, D.Scheduled.Binding(0, 2), D.Scheduled.Binding(0, 1))}
+
+    local p = D.Scheduled.Project(
+        transport, tempo_map,
+        buffers, tracks, steps,
+        L(), node_jobs,
+        L(), L(), output_jobs, clip_jobs, mod_jobs,
+        L(), L(),
+        L{
+            D.Scheduled.Literal(1.0),
+            D.Scheduled.Literal(-1.0),
+            D.Scheduled.Literal(1.0),
+            D.Scheduled.Literal(0.5),
+            D.Scheduled.Literal(0.2),
+        },
+        L{
+            D.Scheduled.Param(0, 10, 0.2, 0, 4, D.Scheduled.Binding(0, 4), 0, 0, 0, 0, 1, 0)
+        },
+        L{
+            D.Scheduled.ModSlot(0, 10, 90, false, 0, 1, D.Scheduled.Binding(3, 0))
+        },
+        L{
+            D.Scheduled.ModRoute(0, 0, D.Scheduled.Binding(0, 0), true, nil)
+        },
+        L{D.Scheduled.Binding(0, 4)},
+        L(), L(), L(),
+        L(), L(), L(),
+        3, 1,
+        0, 1
+    )
+
+    local k = p:compile({diagnostics = {}})
+    local render = k and k:entry_fn() or nil
+    check(k ~= nil and render ~= nil, "manual modulation project compiled")
+    if render then
+        local out_l = terralib.new(float[64])
+        local out_r = terralib.new(float[64])
+        render(out_l, out_r, 64)
+        check(approx(out_l[0], 0.7, 0.02), "modulation adds 0.5 to base gain 0.2 -> 0.7, got " .. out_l[0])
+        check(approx(out_r[0], 0.0, 0.01), "hard-left pan still applies under modulation")
     end
     print("  PASS")
 end

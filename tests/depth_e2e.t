@@ -279,6 +279,66 @@ do
 end
 
 -- ══════════════════════════════════════════════════════════
+-- Test 5: Automation curves become classified/scheduled block ops
+-- ══════════════════════════════════════════════════════════
+print("\nTest 5: Automation curves become block ops")
+do
+    local project = D.Editor.Project(
+        "automation_test", nil, 1,
+        D.Editor.Transport(44100, 128, 120, 0, 4, 4, D.Editor.QNone, false, nil),
+        L{D.Editor.Track(1, "Track 1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+            D.Editor.ParamValue(0, "vol", 1, 0, 4,
+                D.Editor.AutomationRef(D.Editor.AutoCurve(
+                    L{D.Editor.AutoPoint(0, 0.2), D.Editor.AutoPoint(1, 0.8)},
+                    D.Editor.Linear)),
+                D.Editor.Replace, D.Editor.NoSmoothing),
+            D.Editor.ParamValue(1, "pan", 0, -1, 1,
+                D.Editor.StaticValue(-1), D.Editor.Replace, D.Editor.NoSmoothing),
+            D.Editor.DeviceChain(L{
+                D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
+                    9, "Square", D.Authored.SquareOsc(),
+                    L{D.Editor.ParamValue(0, "freq", 100, 1, 20000,
+                        D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
+                    L(), nil, nil, nil, true, nil))
+            }),
+            L(), L(), L(), nil, nil, false, false, false, false, false, nil
+        )},
+        L(),
+        D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
+        D.Authored.AssetBank(L(), L(), L(), L(), L())
+    )
+
+    local ctx = {diagnostics = {}}
+    local authored = project:lower(ctx)
+    local resolved = authored:resolve(ctx)
+    local classified = resolved:classify(ctx)
+    local scheduled = classified:schedule(ctx)
+
+    check(#resolved.all_curves >= 1, "Should have at least 1 resolved automation curve")
+    check(#classified.block_ops >= 1, "Should have at least 1 classified block op")
+    check(#classified.block_pts >= 2, "Should have classified block points")
+    check(classified.params[2].base_value.rate_class == 2 or classified.params[1].base_value.rate_class == 2,
+        "At least one param should be block-rate")
+    check(#scheduled.block_ops >= 1, "Scheduled block ops should be populated")
+    check(#scheduled.block_pts >= 2, "Scheduled block pts should be populated")
+
+    local k0 = scheduled:compile({diagnostics = {}, block_tick = 0})
+    local k1 = scheduled:compile({diagnostics = {}, block_tick = 960})
+    local r0 = k0 and k0:entry_fn() or nil
+    local r1 = k1 and k1:entry_fn() or nil
+    check(k0 ~= nil and r0 ~= nil, "compile at tick 0 succeeds")
+    check(k1 ~= nil and r1 ~= nil, "compile at tick 960 succeeds")
+    if r0 and r1 then
+        local out0L = terralib.new(float[128]); local out0R = terralib.new(float[128])
+        local out1L = terralib.new(float[128]); local out1R = terralib.new(float[128])
+        r0(out0L, out0R, 128)
+        r1(out1L, out1R, 128)
+        check(out1L[0] > out0L[0], "Automation should change output across block_tick compiles")
+    end
+    print("  PASS")
+end
+
+-- ══════════════════════════════════════════════════════════
 print("")
 if fail_count == 0 then
     print("════════════════════════════════════════")

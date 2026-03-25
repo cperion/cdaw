@@ -1,7 +1,8 @@
 -- tests/first_sound.t
 -- MILESTONE E: First sound test.
 -- Verifies that the compiled kernel produces actual non-zero audio output.
--- Signal path: DC 1.0 → GainNode(gain=0.75) → track volume(0.8) → master L/R
+-- Signal path: SquareOsc(very low freq) → GainNode(gain=0.75)
+-- → track volume(0.8) → center-pan OutputJob(equal-power) → master L/R
 
 local D = require("daw-unified")
 require("impl/init")
@@ -27,9 +28,11 @@ local function approx(a, b, tol)
 end
 
 -- ══════════════════════════════════════════════════════════
--- Build a minimal project: 1 track, 1 GainNode(gain=0.75),
--- track volume=0.8
--- Expected output per sample: 1.0 * 0.75 * 0.8 = 0.6
+-- Build a minimal project: 1 track, SquareOsc(very low freq) → GainNode(gain=0.75),
+-- track volume=0.8.
+-- With a low enough frequency, the whole test block stays at +1.0 before gain.
+-- Expected output per channel sample at center pan:
+-- 1.0 * 0.75 * 0.8 * cos(pi/4) ≈ 0.424264
 -- ══════════════════════════════════════════════════════════
 
 print("═══════════════════════════════════════════")
@@ -40,10 +43,10 @@ print("")
 local FRAMES = 64
 local GAIN = 0.75
 local VOLUME = 0.8
-local EXPECTED = 1.0 * GAIN * VOLUME  -- = 0.6
+local EXPECTED = 1.0 * GAIN * VOLUME * math.cos(math.pi / 4)
 
-print("Signal path: DC 1.0 → GainNode(gain=" .. GAIN .. ") → volume(" .. VOLUME .. ") → master")
-print("Expected output per sample: " .. EXPECTED)
+print("Signal path: SquareOsc(100 Hz) → GainNode(gain=" .. GAIN .. ") → volume(" .. VOLUME .. ") → center-pan output → master")
+print("Expected output per channel sample: " .. EXPECTED)
 print("")
 
 local project = D.Editor.Project(
@@ -53,6 +56,11 @@ local project = D.Editor.Project(
         D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(VOLUME), D.Editor.Replace, D.Editor.NoSmoothing),
         D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
         D.Editor.DeviceChain(L{
+            D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
+                9, "Square", D.Authored.SquareOsc(),
+                L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
+                L(), nil, nil, nil, true, nil
+            )),
             D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                 10, "Gain", D.Authored.GainNode(),
                 L{D.Editor.ParamValue(0, "gain", 1, 0, 4, D.Editor.StaticValue(GAIN), D.Editor.Replace, D.Editor.NoSmoothing)},
@@ -90,17 +98,17 @@ check(scheduled.total_buffers >= 3, "Should have ≥3 buffers (master L + R + wo
 
 -- Show literal table
 print("  Literals:")
-for i = 1, #scheduled._literal_values do
-    print("    [" .. (i-1) .. "] = " .. scheduled._literal_values[i])
+for i = 1, #scheduled.literals do
+    print("    [" .. (i-1) .. "] = " .. scheduled.literals[i].value)
 end
 
 print("Phase 5: Scheduled → Kernel")
 local kernel = scheduled:compile(ctx)
 check(kernel ~= nil, "Kernel should not be nil")
-check(kernel._render_fn ~= nil, "Should have a compiled render function")
+local render = kernel:entry_fn()
+check(render ~= nil, "Should have a compiled render function")
 
 print("Phase 6: Kernel entry")
-local render = kernel:entry_fn()
 check(render ~= nil, "render should not be nil")
 
 print("")
@@ -145,7 +153,7 @@ end
 
 print("")
 check(not all_zero, "Output should NOT be all zeros — we want SOUND!")
-check(all_correct, "All samples should be ≈" .. EXPECTED .. " (1.0 × " .. GAIN .. " × " .. VOLUME .. ")")
+check(all_correct, "All samples should be ≈" .. EXPECTED .. " (1.0 × " .. GAIN .. " × " .. VOLUME .. " × cos(pi/4))")
 
 -- Count diagnostics
 check(#ctx.diagnostics == 0,
@@ -162,7 +170,7 @@ print("")
 if fail_count == 0 then
     print("════════════════════════════════════════════")
     print("  🔊 FIRST SOUND: PASS (" .. pass_count .. " checks)")
-    print("  Signal: DC 1.0 → Gain(" .. GAIN .. ") → Vol(" .. VOLUME .. ") → " .. EXPECTED)
+    print("  Signal: SquareOsc(100) → Gain(" .. GAIN .. ") → Vol(" .. VOLUME .. ") → center-pan → " .. EXPECTED)
     print("  Compiled Terra function produced real audio output!")
     print("════════════════════════════════════════════")
 else

@@ -22,8 +22,9 @@ local function approx(a, b, tol)
 end
 
 -- Build a single-track project with one device, compile, render, return output[0]
-local function run_device(name, kind, params, volume)
+local function run_device(name, kind, params, volume, include_source)
     volume = volume or 1.0
+    if include_source == nil then include_source = true end
     local editor_params = L()
     for i = 1, #params do
         local p = params[i]
@@ -34,17 +35,25 @@ local function run_device(name, kind, params, volume)
         ))
     end
 
+    local devices = L()
+    if include_source then
+        devices:insert(D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
+            9, "Src", D.Authored.SquareOsc(),
+            L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
+            L(), nil, nil, nil, true, nil
+        )))
+    end
+    devices:insert(D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
+        10, name, kind, editor_params, L(), nil, nil, nil, true, nil
+    )))
+
     local project = D.Editor.Project(
         name, nil, 1,
         D.Editor.Transport(44100, FRAMES, 120, 0, 4, 4, D.Editor.QNone, false, nil),
         L{D.Editor.Track(1, "T", 2, D.Editor.AudioTrack, D.Editor.NoInput,
             D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(volume), D.Editor.Replace, D.Editor.NoSmoothing),
-            D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
-            D.Editor.DeviceChain(L{
-                D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-                    10, name, kind, editor_params, L(), nil, nil, nil, true, nil
-                ))
-            }),
+            D.Editor.ParamValue(1, "pan", -1, -1, 1, D.Editor.StaticValue(-1), D.Editor.Replace, D.Editor.NoSmoothing),
+            D.Editor.DeviceChain(devices),
             L(), L(), L(), nil, nil, false, false, false, false, false, nil
         )},
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
@@ -57,8 +66,9 @@ local function run_device(name, kind, params, volume)
     local classified = resolved:classify(ctx)
     local scheduled = classified:schedule(ctx)
     local kernel = scheduled:compile(ctx)
+    local render = kernel:entry_fn()
 
-    if not kernel._render_fn then
+    if not render then
         print("    Compile failed! Diagnostics:")
         for i = 1, #ctx.diagnostics do
             print("      " .. (ctx.diagnostics[i].message or "?"))
@@ -68,7 +78,7 @@ local function run_device(name, kind, params, volume)
 
     local out_l = terralib.new(float[FRAMES])
     local out_r = terralib.new(float[FRAMES])
-    kernel._render_fn(out_l, out_r, FRAMES)
+    render(out_l, out_r, FRAMES)
     return out_l[0], out_r[0]
 end
 
@@ -83,7 +93,7 @@ do
     local vl, vr = run_device("Gain", D.Authored.GainNode(),
         {{0, "gain", 0.5, 0, 4}}, 1.0)
     check(vl and approx(vl, 0.5), string.format("L=%.4f expected 0.5", vl or -1))
-    check(vr and approx(vr, 0.5), string.format("R=%.4f expected 0.5", vr or -1))
+    check(vr and approx(vr, 0.0), string.format("R=%.4f expected 0.0 (hard-left pan)", vr or -1))
     print(string.format("  → L=%.6f R=%.6f ✓\n", vl or 0, vr or 0))
 end
 
@@ -142,7 +152,7 @@ end
 print("SineOsc: freq=440 → first sample = sin(0) = 0.0")
 do
     local vl, vr = run_device("Sine", D.Authored.SineOsc(),
-        {{0, "freq", 440, 1, 22050}}, 1.0)
+        {{0, "freq", 440, 1, 22050}}, 1.0, false)
     -- First sample: sin(0) = 0.0 (phase starts at 0)
     check(vl ~= nil, "Should produce output")
     check(vl and approx(vl, 0.0, 0.01), string.format("L=%.4f expected ≈0.0 (sin(0))", vl or -1))
@@ -158,8 +168,13 @@ do
         L{
             D.Editor.Track(1, "T1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
                 D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(1.0), D.Editor.Replace, D.Editor.NoSmoothing),
-                D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
+                D.Editor.ParamValue(1, "pan", -1, -1, 1, D.Editor.StaticValue(-1), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.DeviceChain(L{
+                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
+                        9, "Src1", D.Authored.SquareOsc(),
+                        L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
+                        L(), nil, nil, nil, true, nil
+                    )),
                     D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                         10, "G1", D.Authored.GainNode(),
                         L{D.Editor.ParamValue(0, "gain", 0.4, 0, 4, D.Editor.StaticValue(0.4), D.Editor.Replace, D.Editor.NoSmoothing)},
@@ -170,8 +185,13 @@ do
             ),
             D.Editor.Track(2, "T2", 2, D.Editor.AudioTrack, D.Editor.NoInput,
                 D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing),
-                D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
+                D.Editor.ParamValue(1, "pan", -1, -1, 1, D.Editor.StaticValue(-1), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.DeviceChain(L{
+                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
+                        19, "Src2", D.Authored.SquareOsc(),
+                        L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
+                        L(), nil, nil, nil, true, nil
+                    )),
                     D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                         20, "G2", D.Authored.GainNode(),
                         L{D.Editor.ParamValue(0, "gain", 0.2, 0, 4, D.Editor.StaticValue(0.2), D.Editor.Replace, D.Editor.NoSmoothing)},
@@ -187,9 +207,10 @@ do
 
     local ctx = {diagnostics = {}}
     local kernel = project:lower(ctx):resolve(ctx):classify(ctx):schedule(ctx):compile(ctx)
+    local render = kernel:entry_fn()
     local out_l = terralib.new(float[FRAMES])
     local out_r = terralib.new(float[FRAMES])
-    kernel._render_fn(out_l, out_r, FRAMES)
+    render(out_l, out_r, FRAMES)
 
     -- Expected: T1 = 1.0*0.4*1.0 = 0.4, T2 = 1.0*0.2*0.5 = 0.1, total = 0.5
     local expected = 0.4 * 1.0 + 0.2 * 0.5
@@ -206,8 +227,13 @@ do
         D.Editor.Transport(44100, FRAMES, 120, 0, 4, 4, D.Editor.QNone, false, nil),
         L{D.Editor.Track(1, "T", 2, D.Editor.AudioTrack, D.Editor.NoInput,
             D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(1.0), D.Editor.Replace, D.Editor.NoSmoothing),
-            D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
+            D.Editor.ParamValue(1, "pan", -1, -1, 1, D.Editor.StaticValue(-1), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{
+                D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
+                    9, "Src", D.Authored.SquareOsc(),
+                    L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
+                    L(), nil, nil, nil, true, nil
+                )),
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                     10, "G1", D.Authored.GainNode(),
                     L{D.Editor.ParamValue(0, "g", 0.8, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing)},
@@ -227,9 +253,10 @@ do
 
     local ctx = {diagnostics = {}}
     local kernel = project:lower(ctx):resolve(ctx):classify(ctx):schedule(ctx):compile(ctx)
+    local render = kernel:entry_fn()
     local out_l = terralib.new(float[FRAMES])
     local out_r = terralib.new(float[FRAMES])
-    kernel._render_fn(out_l, out_r, FRAMES)
+    render(out_l, out_r, FRAMES)
 
     -- Expected: 1.0 * 0.8 * 0.5 * 1.0 = 0.4
     local expected = 0.8 * 0.5

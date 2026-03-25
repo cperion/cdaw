@@ -51,7 +51,8 @@ module Kernel {
     Project = (
         Kernel.Buffers buffers,
         Kernel.State   state,
-        Kernel.API     api
+        Kernel.API     api,
+        TerraFunc      entry
     ) unique
     methods {
         entry_fn() -> TerraFunc

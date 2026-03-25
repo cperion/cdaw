@@ -326,7 +326,7 @@ do
 
     local kernel = scheduled:compile(ctx)
     check(kernel ~= nil, "kernel compiled")
-    check(kernel._render_fn ~= nil, "render function exists")
+    check(kernel:entry_fn() ~= nil, "render function exists")
 
     print("  PASS")
 end
@@ -343,7 +343,7 @@ do
         D.Classified.Binding(0, 4),  -- pan → literal[4]
         100,                         -- device_graph_id
         0, 0, 0, 0,                 -- clips, slots
-        L(),                         -- send_ids
+        0, 0,                       -- sends
         nil, nil,
         false, false, false, false
     )

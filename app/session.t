@@ -40,7 +40,7 @@ function M.new(editor_project, opts)
         local classified = resolved:classify(ctx)
         local scheduled = classified:schedule(ctx)
         local kernel = scheduled:compile(ctx)
-        self.render_fn = kernel._render_fn or kernel:entry_fn()
+        self.render_fn = kernel:entry_fn()
         self.compiled = true
         self._last_diagnostics = ctx.diagnostics
 

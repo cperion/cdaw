@@ -16,6 +16,9 @@ module Resolved {
         Resolved.TempoMap   tempo_map,
         Resolved.Track*     tracks,
         Resolved.Scene*     scenes,
+        Resolved.Clip*      all_clips,
+        Resolved.Slot*      all_slots,
+        Resolved.Send*      all_sends,
 
         Resolved.Graph*     all_graphs,
         Resolved.GraphPort* all_graph_ports,
@@ -55,11 +58,11 @@ module Resolved {
     Track = (
         number id, string name, number channels,
         number input_kind_code, number input_arg0, number input_arg1,
-        number volume_param_id, number pan_param_id,
+        number volume_param_index, number pan_param_index,
         number device_graph_id,
         number first_clip, number clip_count,
         number first_slot, number slot_count,
-        number* send_ids,
+        number first_send, number send_count,
         number? output_track_id, number? group_track_id,
         boolean muted, boolean soloed,
         boolean armed, boolean monitor_input,

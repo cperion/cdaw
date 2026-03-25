@@ -9,6 +9,9 @@ module Classified {
         Classified.TempoMap   tempo_map,
         Classified.Track*     tracks,
         Classified.Scene*     scenes,
+        Classified.Clip*      clips,
+        Classified.Slot*      slots,
+        Classified.Send*      sends,
 
         Classified.Graph*     graphs,
         Classified.GraphPort* graph_ports,
@@ -63,7 +66,7 @@ module Classified {
         number device_graph_id,
         number first_clip, number clip_count,
         number first_slot, number slot_count,
-        number* send_ids,
+        number first_send, number send_count,
         number? output_track_id, number? group_track_id,
         boolean muted_structural, boolean solo_structural,
         boolean armed, boolean monitor_input

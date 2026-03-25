@@ -70,7 +70,7 @@ print("4. classified.track.schedule")
 do
     local ct = D.Classified.Track(42, 2, 0, 0, 0,
         D.Classified.Binding(0, 3), D.Classified.Binding(0, 4),
-        100, 0, 0, 0, 0, L(), nil, nil, false, false, false, false)
+        100, 0, 0, 0, 0, 0, 0, nil, nil, false, false, false, false)
     local ctx = {diagnostics = {},
         _track_work_buf = {[42] = 5},
         _master_left = 0, _master_right = 1}
@@ -147,12 +147,16 @@ do
     local c = r:classify(ctx)
     local s = c:schedule(ctx)
     check(#s.tracks >= 1, "tracks scheduled")
+    check(#s.steps >= 1, "steps created")
     check(#s.node_jobs >= 1, "node jobs created")
-    check(#s.buffers >= 3, "at least 3 buffers")
-    check(s.total_buffers >= 3, "total_buffers >= 3")
+    check(#s.output_jobs >= 1, "output jobs created")
+    check(#s.mix_jobs >= 1, "mix jobs created")
+    check(#s.buffers >= 4, "at least 4 buffers (master L/R + work + mix_in)")
+    check(s.total_buffers >= 4, "total_buffers >= 4")
     check(s.master_left == 0, "master_left=0")
     check(s.master_right == 1, "master_right=1")
-    check(s._literal_values ~= nil, "literals carried")
+    check(s.steps[1].output_job >= 0, "first step references an output job")
+    check(#s.literals >= 1, "literals carried in ASDL")
     print("  PASS")
 end
 

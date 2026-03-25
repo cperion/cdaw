@@ -57,6 +57,68 @@ local function make_classify_ctx(caller_ctx)
     return ctx
 end
 
+local function build_param_binding_maps(params)
+    local by_id = {}
+    for i = 1, #params do
+        local p = params[i]
+        by_id[p.id] = p.base_value
+    end
+    return by_id
+end
+
+local function build_curve_map(curves)
+    local by_id = {}
+    for i = 1, #curves do
+        by_id[curves[i].id] = curves[i]
+    end
+    return by_id
+end
+
+local function classify_send(send, param_binding_by_id)
+    return D.Classified.Send(
+        send.id,
+        send.target_track_id,
+        param_binding_by_id[send.level_param_id] or F.classified_binding(0, 0),
+        send.pre_fader,
+        send.enabled
+    )
+end
+
+local function classify_clip(clip, param_binding_by_id)
+    return D.Classified.Clip(
+        clip.id,
+        clip.content_kind,
+        clip.asset_id,
+        clip.start_tick,
+        clip.start_tick + clip.duration_tick,
+        clip.source_offset_tick,
+        clip.lane,
+        clip.muted,
+        param_binding_by_id[clip.gain_param_id] or F.classified_binding(0, 0),
+        clip.fade_in_tick,
+        clip.fade_in_curve_code,
+        clip.fade_out_tick,
+        clip.fade_out_curve_code
+    )
+end
+
+local function classify_slot(slot)
+    return D.Classified.Slot(
+        slot.slot_index,
+        slot.slot_kind,
+        slot.clip_id,
+        slot.launch_mode_code,
+        slot.quant_code,
+        slot.legato,
+        slot.retrigger,
+        slot.follow_kind_code,
+        slot.follow_weight_a,
+        slot.follow_weight_b,
+        slot.follow_target_scene_id,
+        slot.enabled
+    )
+end
+
 
 function D.Resolved.Project:classify(caller_ctx)
     return diag.wrap(caller_ctx, "resolved.project.classify", "real", function()
@@ -73,11 +135,10 @@ function D.Resolved.Project:classify(caller_ctx)
 
         -- Make classified params available by flat-table index
         ctx._classified_params = params
-        -- Pass through track param indices from resolve phase
-        ctx._track_vol_idx = self._track_vol_idx or {}
-        ctx._track_pan_idx = self._track_pan_idx or {}
+        local param_binding_by_id = build_param_binding_maps(params)
+        local curve_by_id = build_curve_map(self.all_curves)
 
-        -- Classify tracks (uses literals for volume/pan bindings)
+        -- Classify tracks (uses param flat-table indices carried on each track)
         local tracks = diag.map(ctx, "resolved.project.classify.tracks",
             self.tracks, function(t) return t:classify(ctx) end)
 
@@ -104,6 +165,38 @@ function D.Resolved.Project:classify(caller_ctx)
         local mod_routes = diag.map(ctx, "resolved.project.classify.mod_routes",
             self.all_mod_routes, function(mr) return mr:classify(ctx) end)
 
+        -- Patch params with route ranges so later phases can locate all
+        -- modulations targeting a given parameter.
+        do
+            local route_counts = {}
+            local route_first = {}
+            for i = 1, #mod_routes do
+                local r = mod_routes[i]
+                if route_counts[r.target_param_id] == nil then
+                    route_counts[r.target_param_id] = 0
+                    route_first[r.target_param_id] = i - 1
+                end
+                route_counts[r.target_param_id] = route_counts[r.target_param_id] + 1
+            end
+            local patched = L()
+            for i = 1, #params do
+                local p = params[i]
+                patched:insert(D.Classified.Param(
+                    p.id, p.node_id,
+                    p.default_value, p.min_value, p.max_value,
+                    p.base_value,
+                    p.combine_code,
+                    p.smoothing_code, p.smoothing_ms,
+                    route_first[p.id] or 0,
+                    route_counts[p.id] or 0,
+                    p.runtime_state_slot
+                ))
+            end
+            params = patched
+            ctx._classified_params = params
+            param_binding_by_id = build_param_binding_maps(params)
+        end
+
         -- Graph ports with signal base
         local graph_ports = L()
         for i = 1, #self.all_graph_ports do
@@ -127,10 +220,51 @@ function D.Resolved.Project:classify(caller_ctx)
             wires:insert(D.Classified.Wire(w.from_signal, w.to_signal, 1))
         end
 
+        local block_ops = L()
+        local block_pts = L()
+        for i = 1, #self.all_params do
+            local rp = self.all_params[i]
+            local cp = params[i]
+            if rp.source and rp.source.source_kind == 1 and rp.source.curve_id ~= nil and cp and cp.base_value.rate_class == 2 then
+                local curve = curve_by_id[rp.source.curve_id]
+                if curve and #curve.points > 0 then
+                    local first_pt = #block_pts
+                    for j = 1, #curve.points do
+                        block_pts:insert(D.Classified.BlockPt(curve.points[j].tick, curve.points[j].value))
+                    end
+                    local default_slot = ctx:alloc_literal(rp.source.value or rp.default_value or 0.0)
+                    block_ops:insert(D.Classified.BlockOp(
+                        1,
+                        first_pt,
+                        #curve.points,
+                        curve.interp_code or 0,
+                        cp.base_value.slot,
+                        D.Classified.Binding(0, default_slot),
+                        nil
+                    ))
+                end
+            end
+        end
+
         -- Build literal list
         local literals = L()
         for i = 1, #ctx._literals do
             literals:insert(ctx._literals[i])
+        end
+
+        local clips = L()
+        for i = 1, #self.all_clips do
+            clips:insert(classify_clip(self.all_clips[i], param_binding_by_id))
+        end
+
+        local slots = L()
+        for i = 1, #self.all_slots do
+            slots:insert(classify_slot(self.all_slots[i]))
+        end
+
+        local sends = L()
+        for i = 1, #self.all_sends do
+            sends:insert(classify_send(self.all_sends[i], param_binding_by_id))
         end
 
         -- Propagate diagnostics
@@ -141,11 +275,12 @@ function D.Resolved.Project:classify(caller_ctx)
         return D.Classified.Project(
             transport, tempo_map,
             tracks, scenes,
+            clips, slots, sends,
             graphs, graph_ports, nodes, child_refs,
             wires, L(),           -- feedback_pairs
             params, mod_slots, mod_routes,
             literals,
-            L(), L(), L(),        -- init_ops, block_ops, block_pts
+            L(), block_ops, block_pts,
             L(), L(), L(),        -- sample_ops, event_ops, voice_ops
             ctx._total_signals,
             ctx._total_state_slots

@@ -303,15 +303,15 @@ function F.resolved_track(id, name, channels)
         name or "stub",
         channels or 2,
         0, 0, 0,          -- input_kind_code, input_arg0, input_arg1
-        0, 1,              -- volume_param_id, pan_param_id
-        0,                 -- device_graph_id
-        0, 0,              -- first_clip, clip_count
-        0, 0,              -- first_slot, slot_count
-        L(),               -- send_ids
-        nil, nil,          -- output_track_id, group_track_id
-        false, false,      -- muted, soloed
-        false, false,      -- armed, monitor_input
-        false              -- phase_invert
+        0, 1,             -- volume_param_index, pan_param_index
+        0,                -- device_graph_id
+        0, 0,             -- first_clip, clip_count
+        0, 0,             -- first_slot, slot_count
+        0, 0,             -- first_send, send_count
+        nil, nil,         -- output_track_id, group_track_id
+        false, false,     -- muted, soloed
+        false, false,     -- armed, monitor_input
+        false             -- phase_invert
     )
 end
 
@@ -406,6 +406,7 @@ function F.resolved_project()
         F.resolved_transport(),
         F.resolved_tempo_map(),
         L(), L(),          -- tracks, scenes
+        L(), L(), L(),     -- all_clips, all_slots, all_sends
         L(), L(), L(),     -- all_graphs, all_graph_ports, all_nodes
         L(), L(), L(),     -- all_child_graph_refs, all_wires, all_params
         L(), L(), L(),     -- all_mod_slots, all_mod_routes, all_curves
@@ -438,15 +439,15 @@ function F.classified_track(id, channels)
         id or 0,
         channels or 2,
         0, 0, 0,                      -- input_kind_code, arg0, arg1
-        F.classified_binding(0, 0),    -- volume (literal 0)
-        F.classified_binding(0, 0),    -- pan (literal 0)
-        0,                             -- device_graph_id
-        0, 0,                          -- first_clip, clip_count
-        0, 0,                          -- first_slot, slot_count
-        L(),                           -- send_ids
-        nil, nil,                      -- output_track_id, group_track_id
-        false, false,                  -- muted_structural, solo_structural
-        false, false                   -- armed, monitor_input
+        F.classified_binding(0, 0),   -- volume (literal 0)
+        F.classified_binding(0, 0),   -- pan (literal 0)
+        0,                            -- device_graph_id
+        0, 0,                         -- first_clip, clip_count
+        0, 0,                         -- first_slot, slot_count
+        0, 0,                         -- first_send, send_count
+        nil, nil,                     -- output_track_id, group_track_id
+        false, false,                 -- muted_structural, solo_structural
+        false, false                  -- armed, monitor_input
     )
 end
 
@@ -513,6 +514,7 @@ function F.classified_project()
         F.classified_transport(),
         F.classified_tempo_map(),
         L(), L(),          -- tracks, scenes
+        L(), L(), L(),     -- clips, slots, sends
         L(), L(), L(),     -- graphs, graph_ports, nodes
         L(), L(), L(),     -- child_graph_refs, wires, feedback_pairs
         L(), L(), L(),     -- params, mod_slots, mod_routes
@@ -587,6 +589,7 @@ function F.scheduled_project()
         L(), L(), L(),     -- mix_jobs, output_jobs, clip_jobs
         L(),               -- mod_jobs
         L(), L(),          -- launch_entries, scene_entries
+        L(), L(), L(), L(),-- literals, params, mod_slots, mod_routes
         L(),               -- param_bindings
         L(), L(), L(),     -- init_ops, block_ops, block_pts
         L(), L(), L(),     -- sample_ops, event_ops, voice_ops
@@ -621,7 +624,7 @@ function F.kernel_project()
         noop_q, noop_q
     )
 
-    return D.Kernel.Project(buffers, state, api)
+    return D.Kernel.Project(buffers, state, api, noop_entry)
 end
 
 -- No-op TerraQuote for compile methods that return quotes

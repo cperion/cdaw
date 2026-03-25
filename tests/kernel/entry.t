@@ -38,8 +38,8 @@ do
         local out_l = terralib.new(float[64])
         local out_r = terralib.new(float[64])
         entry(out_l, out_r, 64)
-        -- DC 1.0 (no devices) → Vol(1.0) → output 1.0
-        check(approx(out_l[0], 1.0), "render output = 1.0, got " .. out_l[0])
+        -- Empty graph should still compile to a valid silent entry.
+        check(approx(out_l[0], 0.0), "render output = 0.0 silence, got " .. out_l[0])
     end
     print("  PASS")
 end

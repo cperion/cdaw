@@ -30,6 +30,10 @@ module Scheduled {
         Scheduled.LaunchEntry*  launch_entries,
         Scheduled.SceneEntry*   scene_entries,
 
+        Scheduled.Literal*    literals,
+        Scheduled.Param*      params,
+        Scheduled.ModSlot*    mod_slots,
+        Scheduled.ModRoute*   mod_routes,
         Scheduled.Binding*    param_bindings,
         Scheduled.InitOp*     init_ops,
         Scheduled.BlockOp*    block_ops,
@@ -170,6 +174,31 @@ module Scheduled {
         number scene_id,
         number first_slot, number slot_count,
         number quant_code, number? tempo_override
+    )
+
+    Literal = (number value)
+
+    Param = (
+        number id, number node_id,
+        number default_value, number min_value, number max_value,
+        Scheduled.Binding base_value,
+        number combine_code,
+        number smoothing_code, number smoothing_ms,
+        number first_modulation, number modulation_count,
+        number runtime_state_slot
+    )
+
+    ModSlot = (
+        number slot_index, number parent_node_id,
+        number modulator_node_id, boolean per_voice,
+        number first_route, number route_count,
+        Scheduled.Binding output_binding
+    )
+
+    ModRoute = (
+        number mod_slot_index, number target_param_id,
+        Scheduled.Binding depth, boolean bipolar,
+        number? scale_binding_slot
     )
 
     Binding = (number rate_class, number slot)

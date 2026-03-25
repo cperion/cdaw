@@ -33,20 +33,17 @@ function D.Authored.Track:resolve(ctx)
         local sends = diag.map(ctx, "authored.track.resolve.sends",
             self.sends, function(s) return s:resolve(ctx) end)
 
-        local send_ids = L()
-        for i = 1, #sends do send_ids[i] = sends[i].id end
-
         return D.Resolved.Track(
             self.id,
             self.name,
             self.channels,
             ik, ia0, ia1,
-            volume.id,
-            pan.id,
+            0,
+            0,
             device_graph.id,
             0, #clips,        -- first_clip, clip_count (set by flattening)
             0, #slots,        -- first_slot, slot_count
-            send_ids,
+            0, #sends,        -- first_send, send_count
             self.output_track_id,
             self.group_track_id,
             self.muted,
