@@ -1,0 +1,197 @@
+-- ================================================================
+-- PHASE 4: SCHEDULED
+-- Buffer slots, linear jobs, step sequence.
+-- ================================================================
+module Scheduled {
+
+    -- Design note:
+    --   • Scheduling is a structural error boundary before Kernel generation.
+    --   • compile(CompileCtx) should be total in application/runtime use:
+    --     unimplemented jobs should compile to valid local fallbacks
+    --     (silence, passthrough, zero control, empty event output) plus
+    --     diagnostics instead of aborting the full session.
+
+    Project = (
+        Scheduled.Transport   transport,
+        Scheduled.TempoMap    tempo_map,
+
+        Scheduled.Buffer*     buffers,
+        Scheduled.TrackPlan*  tracks,
+        Scheduled.Step*       steps,
+
+        Scheduled.GraphPlan*  graph_plans,
+        Scheduled.NodeJob*    node_jobs,
+        Scheduled.SendJob*    send_jobs,
+        Scheduled.MixJob*     mix_jobs,
+        Scheduled.OutputJob*  output_jobs,
+        Scheduled.ClipJob*    clip_jobs,
+        Scheduled.ModJob*     mod_jobs,
+
+        Scheduled.LaunchEntry*  launch_entries,
+        Scheduled.SceneEntry*   scene_entries,
+
+        Scheduled.Binding*    param_bindings,
+        Scheduled.InitOp*     init_ops,
+        Scheduled.BlockOp*    block_ops,
+        Scheduled.BlockPt*    block_pts,
+        Scheduled.SampleOp*   sample_ops,
+        Scheduled.EventOp*    event_ops,
+        Scheduled.VoiceOp*    voice_ops,
+
+        number total_buffers,
+        number total_state_slots,
+        number master_left, number master_right
+    ) unique
+    methods {
+        compile(CompileCtx ctx) -> Kernel.Project
+    }
+
+    Transport = (
+        number sample_rate, number buffer_size,
+        number bpm, number swing,
+        number time_sig_num, number time_sig_den,
+        number launch_quant_code,
+        boolean looping,
+        number loop_start_tick, number loop_end_tick
+    )
+
+    TempoMap = (Scheduled.TempoSeg* segs)
+    methods {
+        compile(CompileCtx ctx) -> TerraQuote
+    }
+
+    TempoSeg = (number start_tick, number end_tick, number bpm,
+                number base_sample, number samples_per_tick)
+
+    Buffer = (number index, number channels,
+              boolean interleaved, boolean persistent)
+
+    TrackPlan = (
+        number track_id,
+        Scheduled.Binding volume,
+        Scheduled.Binding pan,
+        number input_kind_code, number input_arg0, number input_arg1,
+        number first_step, number step_count,
+        number work_buf, number aux_buf, number mix_in_buf,
+        number out_left, number out_right,
+        boolean is_master
+    )
+
+    Step = (
+        number index,
+        number clear_buf,
+        number clip_job, number node_job,
+        number mod_job, number send_job,
+        number mix_job, number output_job
+    )
+    methods {
+        compile(CompileCtx ctx) -> TerraQuote
+    }
+
+    GraphPlan = (
+        number graph_id,
+        number first_node_job, number node_job_count,
+        number in_buf, number out_buf,
+        number first_feedback, number feedback_count
+    )
+    methods {
+        compile(CompileCtx ctx) -> TerraQuote
+    }
+
+    NodeJob = (
+        number node_id, number kind_code,
+        number in_buf, number out_buf,
+        number first_param, number param_count,
+        number state_slot, number state_size,
+        number arg0, number arg1, number arg2, number arg3
+    )
+    methods {
+        compile(CompileCtx ctx) -> TerraQuote
+    }
+
+    ClipJob = (
+        number clip_id, number content_kind, number asset_id,
+        number out_buf, number start_tick, number end_tick,
+        number source_offset_tick,
+        Scheduled.Binding gain,
+        boolean reversed,
+        number fade_in_tick, number fade_in_curve_code,
+        number fade_out_tick, number fade_out_curve_code
+    )
+    methods {
+        compile(CompileCtx ctx) -> TerraQuote
+    }
+
+    ModJob = (
+        number mod_node_id, number parent_node_id,
+        boolean per_voice,
+        number first_route, number route_count,
+        number output_state_slot,
+        Scheduled.Binding output
+    )
+    methods {
+        compile(CompileCtx ctx) -> TerraQuote
+    }
+
+    SendJob = (
+        number source_buf, number target_buf,
+        Scheduled.Binding level,
+        boolean pre_fader, boolean enabled
+    )
+    methods {
+        compile(CompileCtx ctx) -> TerraQuote
+    }
+
+    MixJob = (number source_buf, number target_buf, Scheduled.Binding gain)
+    methods {
+        compile(CompileCtx ctx) -> TerraQuote
+    }
+
+    OutputJob = (
+        number source_buf, number out_left, number out_right,
+        Scheduled.Binding gain, Scheduled.Binding pan
+    )
+    methods {
+        compile(CompileCtx ctx) -> TerraQuote
+    }
+
+    LaunchEntry = (
+        number track_id, number slot_index,
+        number slot_kind, number clip_id,
+        number launch_mode_code, number quant_code,
+        boolean legato, boolean retrigger,
+        number follow_kind_code,
+        number follow_weight_a, number follow_weight_b,
+        number? follow_target_scene_id,
+        boolean enabled
+    )
+
+    SceneEntry = (
+        number scene_id,
+        number first_slot, number slot_count,
+        number quant_code, number? tempo_override
+    )
+
+    Binding = (number rate_class, number slot)
+    methods {
+        compile_value(CompileCtx ctx) -> TerraQuote
+    }
+
+    InitOp   = (number kind, number arg0, number arg1,
+                Scheduled.Binding i0, Scheduled.Binding? i1,
+                number state_slot)
+    BlockOp  = (number kind, number first_pt, number pt_count,
+                number interp, number arg0,
+                Scheduled.Binding i0, Scheduled.Binding? i1)
+    BlockPt  = (number tick, number value)
+    SampleOp = (number kind, Scheduled.Binding i0,
+                Scheduled.Binding? i1,
+                number arg0, number arg1, number arg2,
+                number state_slot)
+    EventOp  = (number kind, number event_code,
+                number min_v, number max_v, number state_slot)
+    VoiceOp  = (number kind, Scheduled.Binding i0,
+                Scheduled.Binding? i1,
+                number arg0, number arg1, number arg2,
+                number state_slot)
+}
