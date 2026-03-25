@@ -315,6 +315,18 @@ function F.resolved_track(id, name, channels)
     )
 end
 
+function F.resolved_track_slice(id, name, channels)
+    return D.Resolved.TrackSlice(
+        F.resolved_track(id, name, channels),
+        L{F.resolved_param(0, "volume"), F.resolved_param(1, "pan")},
+        L(),
+        L(),
+        L(),
+        L(),
+        F.resolved_graph_slice(0)
+    )
+end
+
 function F.resolved_send(id, target_track_id)
     return D.Resolved.Send(id or 0, target_track_id or 0, 0, false, true)
 end
@@ -359,6 +371,20 @@ function F.resolved_graph(id)
     )
 end
 
+function F.resolved_graph_slice(id)
+    return D.Resolved.GraphSlice(
+        L{F.resolved_graph(id)},
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L()
+    )
+end
+
 function F.resolved_node(id)
     return D.Resolved.Node(
         id or 0,
@@ -375,7 +401,14 @@ function F.resolved_node(id)
 end
 
 function F.resolved_mod_slot()
-    return D.Resolved.ModSlot(0, 0, 0, false, 0, 0)
+    return D.Resolved.ModSlot(
+        0, 0,
+        0, 0,
+        0, 0,
+        0, 0, 0, 0,
+        false,
+        0, 0
+    )
 end
 
 function F.resolved_mod_route()
@@ -405,11 +438,8 @@ function F.resolved_project()
     return D.Resolved.Project(
         F.resolved_transport(),
         F.resolved_tempo_map(),
-        L(), L(),          -- tracks, scenes
-        L(), L(), L(),     -- all_clips, all_slots, all_sends
-        L(), L(), L(),     -- all_graphs, all_graph_ports, all_nodes
-        L(), L(), L(),     -- all_child_graph_refs, all_wires, all_params
-        L(), L(), L(),     -- all_mod_slots, all_mod_routes, all_curves
+        L(),                -- track_slices
+        L(),                -- scenes
         F.resolved_asset_bank()
     )
 end
@@ -493,10 +523,14 @@ end
 
 function F.classified_mod_slot()
     return D.Classified.ModSlot(
-        0, 0, 0,           -- slot_index, parent_node_id, modulator_node_id
-        false,             -- per_voice
-        0, 0,              -- first_route, route_count
-        F.classified_binding(0, 0) -- output_binding
+        0, 0,
+        0, 0,
+        0, 0,
+        0, 0, 0, 0,
+        false,
+        0, 0,
+        0, 0,
+        F.classified_binding(0, 0)
     )
 end
 
@@ -509,19 +543,53 @@ function F.classified_mod_route()
     )
 end
 
+function F.classified_graph_slice(id)
+    return D.Classified.GraphSlice(
+        L{F.classified_graph(id)},
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        0,
+        0
+    )
+end
+
+function F.classified_track_slice(id, channels)
+    return D.Classified.TrackSlice(
+        F.classified_track(id, channels),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        F.classified_graph_slice(0)
+    )
+end
+
 function F.classified_project()
     return D.Classified.Project(
         F.classified_transport(),
         F.classified_tempo_map(),
-        L(), L(),          -- tracks, scenes
-        L(), L(), L(),     -- clips, slots, sends
-        L(), L(), L(),     -- graphs, graph_ports, nodes
-        L(), L(), L(),     -- child_graph_refs, wires, feedback_pairs
-        L(), L(), L(),     -- params, mod_slots, mod_routes
-        L(), L(), L(),     -- literals, init_ops, block_ops
-        L(), L(), L(),     -- block_pts, sample_ops, event_ops
-        L(),               -- voice_ops
-        0, 0               -- total_signals, total_state_slots
+        L(),                -- track_slices
+        L()                 -- scenes
     )
 end
 
@@ -578,23 +646,65 @@ function F.scheduled_node_job(node_id)
     )
 end
 
+function F.scheduled_graph_program(graph_id)
+    return D.Scheduled.GraphProgram(
+        F.scheduled_transport(),
+        F.scheduled_tempo_map(),
+        L(),
+        F.scheduled_graph_plan(graph_id),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        0,
+        0
+    )
+end
+
+function F.scheduled_track_program(track_id)
+    return D.Scheduled.TrackProgram(
+        F.scheduled_transport(),
+        F.scheduled_tempo_map(),
+        L(),
+        F.scheduled_track_plan(track_id),
+        L(),
+        F.scheduled_graph_program(0),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        0,
+        0,
+        0,
+        0
+    )
+end
+
 function F.scheduled_project()
     return D.Scheduled.Project(
         F.scheduled_transport(),
         F.scheduled_tempo_map(),
-        L(),               -- buffers
-        L(),               -- tracks
-        L(),               -- steps
-        L(), L(), L(),     -- graph_plans, node_jobs, send_jobs
-        L(), L(), L(),     -- mix_jobs, output_jobs, clip_jobs
-        L(),               -- mod_jobs
-        L(), L(),          -- launch_entries, scene_entries
-        L(), L(), L(), L(),-- literals, params, mod_slots, mod_routes
-        L(),               -- param_bindings
-        L(), L(), L(),     -- init_ops, block_ops, block_pts
-        L(), L(), L(),     -- sample_ops, event_ops, voice_ops
-        0, 0,              -- total_buffers, total_state_slots
-        0, 0               -- master_left, master_right
+        L(),               -- track_programs
+        L()                -- scene_entries
     )
 end
 
@@ -603,10 +713,19 @@ end
 -- KERNEL fallbacks
 -- ════════════════════════════════════════════════════════════
 
+function F.kernel_unit()
+    local terra noop_unit() end
+    return D.Kernel.Unit(noop_unit, tuple())
+end
+
 function F.kernel_project()
     local stub_type = tuple()
-    local noop_q = quote end
-    local terra noop_entry() end
+    local terra noop_entry(output_left : &float, output_right : &float, frames : int32)
+        for i = 0, frames do
+            output_left[i] = 0.0f
+            output_right[i] = 0.0f
+        end
+    end
 
     local buffers = D.Kernel.Buffers(
         stub_type, stub_type, stub_type, stub_type, stub_type
@@ -616,12 +735,12 @@ function F.kernel_project()
         stub_type, stub_type, stub_type
     )
     local api = D.Kernel.API(
-        noop_q, noop_q, noop_q,
-        noop_q, noop_q, noop_q,
-        noop_q, noop_q, noop_q,
-        noop_q, noop_q, noop_q,
-        noop_q, noop_q, noop_q,
-        noop_q, noop_q
+        noop_entry, noop_entry, noop_entry,
+        noop_entry, noop_entry, noop_entry,
+        noop_entry, noop_entry, noop_entry,
+        noop_entry, noop_entry, noop_entry,
+        noop_entry, noop_entry, noop_entry,
+        noop_entry, noop_entry
     )
 
     return D.Kernel.Project(buffers, state, api, noop_entry)

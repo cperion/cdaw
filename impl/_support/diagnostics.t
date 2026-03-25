@@ -23,10 +23,44 @@ local M = {}
 M.method_status = {}
 M.method_calls  = {}   -- code → { calls, successes, fallbacks }
 
+-- Variant progress tracking.
+--
+-- variant_families:
+--   code → { module = "Authored", type_name = "NodeKind" }
+--
+-- variant_statuses:
+--   code → { VariantName = "stub" | "partial" | "real" }
+--
+-- This lets progress tracking report a second axis:
+--   method complete? and variant complete?
+M.variant_families = {}
+M.variant_statuses = {}
+
 -- Register a method's status without wrap (for methods that don't use
 -- the wrap pattern, e.g. Kernel.Project:entry_fn).
 function M.status(code, status)
     M.method_status[code] = status
+end
+
+-- Declare that a method varies over the variants of an ASDL sum type.
+-- The family may be the method's own parent type (e.g. Editor.Device), or a
+-- different semantic family collapsed earlier in the pipeline (e.g.
+-- Scheduled.NodeJob:compile varying over Authored.NodeKind).
+function M.variant_family(code, module_name, type_name)
+    M.variant_families[code] = {
+        module = module_name,
+        type_name = type_name,
+    }
+end
+
+-- Register the implementation status for one semantic variant within a method.
+function M.variant_status(code, variant_name, status)
+    local t = M.variant_statuses[code]
+    if not t then
+        t = {}
+        M.variant_statuses[code] = t
+    end
+    t[variant_name] = status
 end
 
 -- ═══════════════════════════════════════════════════════════

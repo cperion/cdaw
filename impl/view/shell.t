@@ -10,6 +10,14 @@ local C = require("impl/view/_support/common")
 local P = require("impl/view/components/placeholder_panel")
 local status_bar = require("impl/view/status_bar")
 local detail_panel = require("impl/view/detail_panel")
+local transport_bar = require("impl/view/transport_bar")
+local arrangement_view = require("impl/view/arrangement/view")
+local launcher_view = require("impl/view/launcher/view")
+local mixer_view = require("impl/view/mixer/view")
+local browser_view = require("impl/view/browser/view")
+local inspector_view = require("impl/view/inspector/view")
+
+local M = {}
 
 local function wrap_fill(ctx, key, node, opts)
     local ui = ctx.ui
@@ -36,10 +44,10 @@ local function lower_detail(detail, ctx, key, height)
     })
 end
 
-local function lower_arrangement_stack(arrangement, detail, ctx, key, background)
+local function lower_arrangement_stack(main_node, detail, ctx, key, background)
     local ui = ctx.ui
     local children = {
-        wrap_fill(ctx, key .. "/main", arrangement, {
+        wrap_fill(ctx, key .. "/main", main_node, {
             width = ui.grow(),
             height = ui.grow(),
             background = background,
@@ -70,13 +78,13 @@ local function lower_hybrid_arrange(main_area, ctx)
         gap = 0,
         background = p.surface_main,
     } {
-        wrap_fill(ctx, "main_area/hybrid/launcher_strip", main_area.launcher:to_decl(ctx), {
+        wrap_fill(ctx, "main_area/hybrid/launcher_strip", launcher_view.lower(main_area.launcher, ctx), {
             width = ui.fixed(336),
             height = ui.grow(),
             background = p.surface_panel,
             border = ui.border { right = 1, color = p.border_separator },
         }),
-        wrap_fill(ctx, "main_area/hybrid/arrangement", main_area.arrangement:to_decl(ctx), {
+        wrap_fill(ctx, "main_area/hybrid/arrangement", arrangement_view.lower(main_area.arrangement, ctx), {
             width = ui.grow(),
             height = ui.grow(),
             background = p.surface_main,
@@ -106,7 +114,7 @@ local function lower_hybrid_mix(main_area, ctx)
     local ui = ctx.ui
     local p = C.palette(ctx)
     local mix_visible = ui.call("!=", ui.param_ref("mode_mix"), 0)
-    return wrap_fill(ctx, "main_area/hybrid/mix", main_area.mixer:to_decl(ctx), {
+    return wrap_fill(ctx, "main_area/hybrid/mix", mixer_view.lower(main_area.mixer, ctx), {
         width = ui.grow(),
         height = ui.grow(),
         background = p.surface_main,
@@ -118,15 +126,8 @@ local function lower_hybrid_edit(main_area, ctx)
     local ui = ctx.ui
     local p = C.palette(ctx)
     local edit_visible = ui.call("!=", ui.param_ref("mode_edit"), 0)
-    if ctx.edit_piano_roll ~= nil then
-        return wrap_fill(ctx, "main_area/hybrid/edit", ctx.edit_piano_roll:to_decl(ctx), {
-            width = ui.grow(),
-            height = ui.grow(),
-            background = p.surface_detail,
-            visible_when = edit_visible,
-        })
-    elseif main_area.detail_panel ~= nil and main_area.detail_panel.kind == "PianoRollDetail" then
-        return wrap_fill(ctx, "main_area/hybrid/edit", main_area.detail_panel.piano_roll:to_decl(ctx), {
+    if main_area.detail_panel ~= nil and main_area.detail_panel.kind == "PianoRollDetail" then
+        return wrap_fill(ctx, "main_area/hybrid/edit", detail_panel.lower(main_area.detail_panel, ctx), {
             width = ui.grow(),
             height = ui.grow(),
             background = p.surface_detail,
@@ -162,21 +163,21 @@ local function lower_main_area(main_area, ctx)
 
     if main_area.kind == "ArrangementMain" then
         return lower_arrangement_stack(
-            main_area.arrangement:to_decl(ctx),
+            arrangement_view.lower(main_area.arrangement, ctx),
             main_area.detail_panel,
             ctx,
             "main_area/arrangement",
             p.surface_main)
     elseif main_area.kind == "LauncherMain" then
         return lower_arrangement_stack(
-            main_area.launcher:to_decl(ctx),
+            launcher_view.lower(main_area.launcher, ctx),
             main_area.detail_panel,
             ctx,
             "main_area/launcher",
             p.surface_main)
     elseif main_area.kind == "MixerMain" then
         return lower_arrangement_stack(
-            main_area.mixer:to_decl(ctx),
+            mixer_view.lower(main_area.mixer, ctx),
             main_area.detail_panel,
             ctx,
             "main_area/mixer",
@@ -189,7 +190,7 @@ local function lower_main_area(main_area, ctx)
     return P.fallback_node(ctx, "main_area/unsupported", "Unsupported main area", main_area.kind)
 end
 
-function V.Shell:to_decl(ctx)
+local function lower(self, ctx)
     return diag.wrap(ctx, "view.shell.to_decl", "real", function()
         local ui = ctx.ui
         local p = C.palette(ctx)
@@ -199,9 +200,9 @@ function V.Shell:to_decl(ctx)
         for i = 1, #self.sidebars do
             local sidebar = self.sidebars[i]
             if sidebar.kind == "BrowserSidebar" then
-                browser = sidebar.browser:to_decl(ctx)
+                browser = browser_view.lower(sidebar.browser, ctx)
             elseif sidebar.kind == "InspectorSidebar" then
-                inspector = sidebar.inspector:to_decl(ctx)
+                inspector = inspector_view.lower(sidebar.inspector, ctx)
             end
         end
 
@@ -210,7 +211,7 @@ function V.Shell:to_decl(ctx)
 
         local scope = ui.scope("app_shell/root")
         local children = {
-            self.transport:to_decl(ctx),
+            transport_bar.lower(self.transport, ctx),
             ui.row {
                 key = ui.scope("app_shell/workspace"),
                 width = ui.grow(),
@@ -239,4 +240,14 @@ function V.Shell:to_decl(ctx)
     end)
 end
 
-return true
+local to_decl_impl = terralib.memoize(function(self)
+    return lower(self, C.new_view_ctx())
+end)
+
+M.lower = lower
+
+function V.Shell:to_decl()
+    return to_decl_impl(self)
+end
+
+return M

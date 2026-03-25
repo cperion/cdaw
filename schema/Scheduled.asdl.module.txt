@@ -1,53 +1,28 @@
 -- ================================================================
 -- PHASE 4: SCHEDULED
--- Buffer slots, linear jobs, step sequence.
+-- Buffer slots, linear jobs, reusable programs.
 -- ================================================================
 module Scheduled {
 
     -- Design note:
     --   • Scheduling is a structural error boundary before Kernel generation.
-    --   • compile(CompileCtx) should be total in application/runtime use:
-    --     unimplemented jobs should compile to valid local fallbacks
+    --   • compile() should be total in application/runtime use:
+    --     unimplemented programs should compile to valid local fallbacks
     --     (silence, passthrough, zero control, empty event output) plus
     --     diagnostics instead of aborting the full session.
+    --   • Any temporary Terra symbols, slot maps, or codegen scratch belong
+    --     inside the memoized implementation, not in the public method
+    --     signature.
+    --   • Raw jobs are data. Reusable program units own compile().
 
     Project = (
-        Scheduled.Transport   transport,
-        Scheduled.TempoMap    tempo_map,
-
-        Scheduled.Buffer*     buffers,
-        Scheduled.TrackPlan*  tracks,
-        Scheduled.Step*       steps,
-
-        Scheduled.GraphPlan*  graph_plans,
-        Scheduled.NodeJob*    node_jobs,
-        Scheduled.SendJob*    send_jobs,
-        Scheduled.MixJob*     mix_jobs,
-        Scheduled.OutputJob*  output_jobs,
-        Scheduled.ClipJob*    clip_jobs,
-        Scheduled.ModJob*     mod_jobs,
-
-        Scheduled.LaunchEntry*  launch_entries,
-        Scheduled.SceneEntry*   scene_entries,
-
-        Scheduled.Literal*    literals,
-        Scheduled.Param*      params,
-        Scheduled.ModSlot*    mod_slots,
-        Scheduled.ModRoute*   mod_routes,
-        Scheduled.Binding*    param_bindings,
-        Scheduled.InitOp*     init_ops,
-        Scheduled.BlockOp*    block_ops,
-        Scheduled.BlockPt*    block_pts,
-        Scheduled.SampleOp*   sample_ops,
-        Scheduled.EventOp*    event_ops,
-        Scheduled.VoiceOp*    voice_ops,
-
-        number total_buffers,
-        number total_state_slots,
-        number master_left, number master_right
+        Scheduled.Transport    transport,
+        Scheduled.TempoMap     tempo_map,
+        Scheduled.TrackProgram* track_programs,
+        Scheduled.SceneEntry*  scene_entries
     ) unique
     methods {
-        compile(CompileCtx ctx) -> Kernel.Project
+        compile() -> Kernel.Project
     }
 
     Transport = (
@@ -60,15 +35,73 @@ module Scheduled {
     )
 
     TempoMap = (Scheduled.TempoSeg* segs)
-    methods {
-        compile(CompileCtx ctx) -> TerraQuote
-    }
 
     TempoSeg = (number start_tick, number end_tick, number bpm,
                 number base_sample, number samples_per_tick)
 
     Buffer = (number index, number channels,
               boolean interleaved, boolean persistent)
+
+    -- TrackProgram is the reusable compilation unit for one scheduled track.
+    -- It contains everything needed to compile that track into a stable
+    -- Kernel.Unit without consulting project-global job tables.
+    TrackProgram = (
+        Scheduled.Transport   transport,
+        Scheduled.TempoMap    tempo_map,
+        Scheduled.Buffer*     buffers,
+        Scheduled.TrackPlan   track,
+        Scheduled.Step*       steps,
+        Scheduled.GraphProgram device_graph,
+        Scheduled.SendJob*    send_jobs,
+        Scheduled.MixJob*     mix_jobs,
+        Scheduled.OutputJob*  output_jobs,
+        Scheduled.ClipJob*    clip_jobs,
+        Scheduled.ModJob*     mod_jobs,
+        Scheduled.LaunchEntry* launch_entries,
+        Scheduled.Param*      mixer_params,
+        Scheduled.Binding*    mixer_param_bindings,
+        Scheduled.Literal*    mixer_literals,
+        Scheduled.InitOp*     mixer_init_ops,
+        Scheduled.BlockOp*    mixer_block_ops,
+        Scheduled.BlockPt*    mixer_block_pts,
+        Scheduled.SampleOp*   mixer_sample_ops,
+        Scheduled.EventOp*    mixer_event_ops,
+        Scheduled.VoiceOp*    mixer_voice_ops,
+        number                total_buffers,
+        number                total_state_slots,
+        number                master_left,
+        number                master_right
+    ) unique
+    methods {
+        compile() -> Kernel.Unit
+    }
+
+    -- GraphProgram is the reusable compilation unit for one scheduled graph
+    -- subtree. It owns its node jobs, control tables, and local buffer/state
+    -- requirements.
+    GraphProgram = (
+        Scheduled.Transport   transport,
+        Scheduled.TempoMap    tempo_map,
+        Scheduled.Buffer*     buffers,
+        Scheduled.GraphPlan   graph,
+        Scheduled.NodeJob*    node_jobs,
+        Scheduled.Param*      params,
+        Scheduled.ModSlot*    mod_slots,
+        Scheduled.ModRoute*   mod_routes,
+        Scheduled.Binding*    param_bindings,
+        Scheduled.Literal*    literals,
+        Scheduled.InitOp*     init_ops,
+        Scheduled.BlockOp*    block_ops,
+        Scheduled.BlockPt*    block_pts,
+        Scheduled.SampleOp*   sample_ops,
+        Scheduled.EventOp*    event_ops,
+        Scheduled.VoiceOp*    voice_ops,
+        number                total_buffers,
+        number                total_state_slots
+    ) unique
+    methods {
+        compile() -> Kernel.Unit
+    }
 
     TrackPlan = (
         number track_id,
@@ -88,9 +121,6 @@ module Scheduled {
         number mod_job, number send_job,
         number mix_job, number output_job
     )
-    methods {
-        compile(CompileCtx ctx) -> TerraQuote
-    }
 
     GraphPlan = (
         number graph_id,
@@ -98,9 +128,6 @@ module Scheduled {
         number in_buf, number out_buf,
         number first_feedback, number feedback_count
     )
-    methods {
-        compile(CompileCtx ctx) -> TerraQuote
-    }
 
     NodeJob = (
         number node_id, number kind_code,
@@ -109,9 +136,6 @@ module Scheduled {
         number state_slot, number state_size,
         number arg0, number arg1, number arg2, number arg3
     )
-    methods {
-        compile(CompileCtx ctx) -> TerraQuote
-    }
 
     ClipJob = (
         number clip_id, number content_kind, number asset_id,
@@ -122,42 +146,31 @@ module Scheduled {
         number fade_in_tick, number fade_in_curve_code,
         number fade_out_tick, number fade_out_curve_code
     )
-    methods {
-        compile(CompileCtx ctx) -> TerraQuote
-    }
 
     ModJob = (
         number mod_node_id, number parent_node_id,
+        number kind_code,
+        number first_param, number param_count,
+        number arg0, number arg1, number arg2, number arg3,
         boolean per_voice,
         number first_route, number route_count,
+        number runtime_state_slot, number state_size,
         number output_state_slot,
         Scheduled.Binding output
     )
-    methods {
-        compile(CompileCtx ctx) -> TerraQuote
-    }
 
     SendJob = (
         number source_buf, number target_buf,
         Scheduled.Binding level,
         boolean pre_fader, boolean enabled
     )
-    methods {
-        compile(CompileCtx ctx) -> TerraQuote
-    }
 
     MixJob = (number source_buf, number target_buf, Scheduled.Binding gain)
-    methods {
-        compile(CompileCtx ctx) -> TerraQuote
-    }
 
     OutputJob = (
         number source_buf, number out_left, number out_right,
         Scheduled.Binding gain, Scheduled.Binding pan
     )
-    methods {
-        compile(CompileCtx ctx) -> TerraQuote
-    }
 
     LaunchEntry = (
         number track_id, number slot_index,
@@ -190,8 +203,12 @@ module Scheduled {
 
     ModSlot = (
         number slot_index, number parent_node_id,
-        number modulator_node_id, boolean per_voice,
+        number modulator_node_id, number modulator_kind_code,
+        number first_param, number param_count,
+        number arg0, number arg1, number arg2, number arg3,
+        boolean per_voice,
         number first_route, number route_count,
+        number state_size, number runtime_state_slot,
         Scheduled.Binding output_binding
     )
 
@@ -202,9 +219,6 @@ module Scheduled {
     )
 
     Binding = (number rate_class, number slot)
-    methods {
-        compile_value(CompileCtx ctx) -> TerraQuote
-    }
 
     InitOp   = (number kind, number arg0, number arg1,
                 Scheduled.Binding i0, Scheduled.Binding? i1,

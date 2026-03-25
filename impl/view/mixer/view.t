@@ -8,11 +8,12 @@ diag.status("view.mixer_view.to_decl", "real")
 local V = D.View
 
 local C = require("impl/view/_support/common")
-local T = require("impl/view/components/text")
 local P = require("impl/view/components/placeholder_panel")
 local strip = require("impl/view/mixer/strip")
 
-function V.MixerView:to_decl(ctx)
+local M = {}
+
+local function lower(self, ctx)
     return diag.wrap(ctx, "view.mixer_view.to_decl", "real", function()
         local ui = ctx.ui
         local p = C.palette(ctx)
@@ -56,4 +57,14 @@ function V.MixerView:to_decl(ctx)
     end)
 end
 
-return true
+local to_decl_impl = terralib.memoize(function(self)
+    return lower(self, C.new_view_ctx())
+end)
+
+M.lower = lower
+
+function V.MixerView:to_decl()
+    return to_decl_impl(self)
+end
+
+return M

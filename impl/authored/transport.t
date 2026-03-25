@@ -8,8 +8,9 @@ local L = F.L
 diag.status("authored.tempo_map.resolve", "real")
 diag.status("authored.transport.resolve", "real")
 
+local DEFAULT_TICKS_PER_BEAT = 960
+local DEFAULT_SAMPLE_RATE = 44100
 
--- Map Authored.Quantize → numeric code
 local quantize_codes = {}
 local qnames = {"QNone","Q1_64","Q1_32","Q1_16","Q1_8","Q1_4","Q1_2","Q1Bar","Q2Bars","Q4Bars"}
 for i, name in ipairs(qnames) do
@@ -20,73 +21,75 @@ local function quantize_to_code(q)
     return quantize_codes[q] or (q.kind and quantize_codes[q.kind]) or 0
 end
 
-function D.Authored.Transport:resolve(ctx)
-    return diag.wrap(ctx, "authored.transport.resolve", "real", function()
-        local loop_start = 0
-        local loop_end = 0
-        if self.loop_range then
-            local ticks_per_beat = (ctx and ctx.ticks_per_beat) or 960
-            loop_start = self.loop_range.start_beats * ticks_per_beat
-            loop_end = self.loop_range.end_beats * ticks_per_beat
-        end
+local resolve_transport = terralib.memoize(function(self, ticks_per_beat)
+    local loop_start = 0
+    local loop_end = 0
+    if self.loop_range then
+        loop_start = self.loop_range.start_beats * ticks_per_beat
+        loop_end = self.loop_range.end_beats * ticks_per_beat
+    end
 
-        return D.Resolved.Transport(
-            self.sample_rate,
-            self.buffer_size,
-            self.bpm,
-            self.swing,
-            self.time_sig_num,
-            self.time_sig_den,
-            quantize_to_code(self.launch_quantize),
-            self.looping,
-            loop_start,
-            loop_end
-        )
+    return D.Resolved.Transport(
+        self.sample_rate,
+        self.buffer_size,
+        self.bpm,
+        self.swing,
+        self.time_sig_num,
+        self.time_sig_den,
+        quantize_to_code(self.launch_quantize),
+        self.looping,
+        loop_start,
+        loop_end
+    )
+end)
+
+local resolve_tempo_map_for = terralib.memoize(function(self, ticks_per_beat, sample_rate)
+    local segments = L()
+    if #self.tempo == 0 then
+        return D.Resolved.TempoMap(segments)
+    end
+
+    local seg_data = {}
+    for i = 1, #self.tempo do
+        local pt = self.tempo[i]
+        local start_tick = pt.at_beats * ticks_per_beat
+        local bpm = pt.bpm
+        local spt = (60.0 / bpm) * sample_rate / ticks_per_beat
+        seg_data[i] = { start_tick = start_tick, bpm = bpm, spt = spt }
+    end
+
+    for i = 1, #seg_data do
+        local base_sample = 0
+        if i > 1 then
+            local prev = seg_data[i - 1]
+            local delta_ticks = seg_data[i].start_tick - prev.start_tick
+            base_sample = prev.base_sample + delta_ticks * prev.spt
+        end
+        seg_data[i].base_sample = base_sample
+    end
+
+    for i = 1, #seg_data do
+        local sd = seg_data[i]
+        segments[i] = D.Resolved.TempoSeg(sd.start_tick, sd.bpm, sd.base_sample, sd.spt)
+    end
+
+    return D.Resolved.TempoMap(segments)
+end)
+
+function D.Authored.Transport:resolve(ticks_per_beat)
+    ticks_per_beat = type(ticks_per_beat) == "number" and ticks_per_beat or DEFAULT_TICKS_PER_BEAT
+    return diag.wrap(nil, "authored.transport.resolve", "real", function()
+        return resolve_transport(self, ticks_per_beat)
     end, function()
         return F.resolved_transport()
     end)
 end
 
-function D.Authored.TempoMap:resolve(ctx)
-    return diag.wrap(ctx, "authored.tempo_map.resolve", "real", function()
-        local ticks_per_beat = (ctx and ctx.ticks_per_beat) or 960
-        local segments = L()
-        local sample_rate = (ctx and ctx.sample_rate) or 44100
-
-        if #self.tempo == 0 then
-            return D.Resolved.TempoMap(L())
-        end
-
-        -- First pass: compute start_tick and samples_per_tick for each segment
-        local seg_data = {}
-        for i = 1, #self.tempo do
-            local pt = self.tempo[i]
-            local start_tick = pt.at_beats * ticks_per_beat
-            local bpm = pt.bpm
-            -- samples_per_tick = (60 / bpm) * sample_rate / ticks_per_beat
-            local spt = (60.0 / bpm) * sample_rate / ticks_per_beat
-            seg_data[i] = { start_tick = start_tick, bpm = bpm, spt = spt }
-        end
-
-        -- Second pass: compute cumulative base_sample
-        -- base_sample[1] = 0
-        -- base_sample[i] = base_sample[i-1] + (start_tick[i] - start_tick[i-1]) * spt[i-1]
-        for i = 1, #seg_data do
-            local base_sample = 0
-            if i > 1 then
-                local prev = seg_data[i - 1]
-                local delta_ticks = seg_data[i].start_tick - prev.start_tick
-                base_sample = prev.base_sample + delta_ticks * prev.spt
-            end
-            seg_data[i].base_sample = base_sample
-        end
-
-        for i = 1, #seg_data do
-            local sd = seg_data[i]
-            segments[i] = D.Resolved.TempoSeg(sd.start_tick, sd.bpm, sd.base_sample, sd.spt)
-        end
-
-        return D.Resolved.TempoMap(segments)
+function D.Authored.TempoMap:resolve(ticks_per_beat, sample_rate)
+    ticks_per_beat = type(ticks_per_beat) == "number" and ticks_per_beat or DEFAULT_TICKS_PER_BEAT
+    sample_rate = type(sample_rate) == "number" and sample_rate or DEFAULT_SAMPLE_RATE
+    return diag.wrap(nil, "authored.tempo_map.resolve", "real", function()
+        return resolve_tempo_map_for(self, ticks_per_beat, sample_rate)
     end, function()
         return F.resolved_tempo_map()
     end)

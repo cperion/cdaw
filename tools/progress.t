@@ -1,12 +1,18 @@
 -- tools/progress.t
 -- Programmatic implementation progress report.
--- The ASDL schema is the SINGLE SOURCE OF TRUTH for what methods should exist.
--- diag.wrap()/diag.status() is the SINGLE SOURCE OF TRUTH for how done each is.
+--
+-- Inventory sources of truth:
+--   • schema text (`methods {}` blocks) for canonical method inventory
+--   • loaded ASDL context (`D`) for canonical variant inventory
+--   • diag.wrap()/diag.status() for method maturity
+--   • diag.variant_family()/diag.variant_status() for variant maturity
 --
 -- Usage:
 --   terra tools/progress.t              # full report
---   terra tools/progress.t summary      # one-line summary
---   terra tools/progress.t phase        # per-phase breakdown
+--   terra tools/progress.t summary      # one-line summaries
+--   terra tools/progress.t phase        # per-phase breakdowns
+--   terra tools/progress.t detail       # method + variant detail
+--   terra tools/progress.t variants     # variant detail only
 --   terra tools/progress.t runtime      # run fixture, show call stats
 --   terra tools/progress.t all          # everything
 
@@ -20,7 +26,7 @@ local asdl_methods = require("tools/asdl_methods")
 local mode = (arg and arg[1]) or "all"
 
 -- ═══════════════════════════════════════════════════════════
--- 1. Parse ASDL: canonical method inventory (SOT)
+-- 1. Parse ASDL: canonical method inventory (text metadata)
 -- ═══════════════════════════════════════════════════════════
 
 local function dirname(path)
@@ -36,7 +42,7 @@ local root = dirname(script_dir())
 local canonical = asdl_methods.parse_all(root .. "/schema")
 
 -- ═══════════════════════════════════════════════════════════
--- 2. Diff: ASDL inventory vs runtime registrations
+-- 2. Diff: ASDL method inventory vs runtime registrations
 -- ═══════════════════════════════════════════════════════════
 
 local methods = {}  -- ordered list of { code, module, type_name, method_name, status }
@@ -57,7 +63,6 @@ for _, m in ipairs(canonical) do
     by_code[m.code] = entry
 end
 
--- Check for orphan registrations (registered but not in ASDL)
 local orphans = {}
 for code, st in pairs(diag.method_status) do
     if not by_code[code] then
@@ -67,7 +72,151 @@ end
 table.sort(orphans, function(a, b) return a.code < b.code end)
 
 -- ═══════════════════════════════════════════════════════════
--- 3. Counts
+-- 3. Variant inventory (live ASDL runtime)
+-- ═══════════════════════════════════════════════════════════
+
+local function lookup_class(module_name, type_name)
+    local ns = D[module_name]
+    return ns and ns[type_name] or nil
+end
+
+local function collect_variants(module_name, type_name)
+    local cls = lookup_class(module_name, type_name)
+    local out, seen = {}, {}
+    if not cls or not cls.members then return out end
+
+    for member in pairs(cls.members) do
+        if type(member) == "table" and member ~= cls then
+            local name = rawget(member, "kind")
+            if type(name) == "string" and not seen[name] then
+                seen[name] = true
+                out[#out + 1] = name
+            end
+        end
+    end
+
+    table.sort(out)
+    return out
+end
+
+local function method_variant_family(m)
+    local fam = diag.variant_families[m.code]
+    if fam then return fam end
+
+    local own_variants = collect_variants(m.module, m.type_name)
+    if #own_variants > 0 then
+        return { module = m.module, type_name = m.type_name }
+    end
+    return nil
+end
+
+local variants = {}          -- flat list of variant work items
+local variant_groups = {}    -- ordered list grouped by method
+local variant_group_by_code = {}
+local known_variant_names = {}
+
+for _, m in ipairs(canonical) do
+    local fam = method_variant_family(m)
+    if fam then
+        local names = collect_variants(fam.module, fam.type_name)
+        if #names > 0 then
+            local group = {
+                code = m.code,
+                method_module = m.module,
+                method_type_name = m.type_name,
+                method_name = m.method_name,
+                family_module = fam.module,
+                family_type_name = fam.type_name,
+                total = 0,
+                none = 0,
+                stub = 0,
+                partial = 0,
+                real = 0,
+                items = {},
+            }
+            variant_groups[#variant_groups + 1] = group
+            variant_group_by_code[m.code] = group
+            known_variant_names[m.code] = {}
+
+            for _, variant_name in ipairs(names) do
+                known_variant_names[m.code][variant_name] = true
+                local status = ((diag.variant_statuses[m.code] or {})[variant_name]) or "none"
+                local item = {
+                    code = m.code,
+                    method_module = m.module,
+                    method_type_name = m.type_name,
+                    method_name = m.method_name,
+                    family_module = fam.module,
+                    family_type_name = fam.type_name,
+                    variant_name = variant_name,
+                    status = status,
+                }
+                variants[#variants + 1] = item
+                group.items[#group.items + 1] = item
+                group.total = group.total + 1
+                group[status] = (group[status] or 0) + 1
+            end
+        end
+    end
+end
+
+local variant_orphans = {}
+for code, reg in pairs(diag.variant_statuses) do
+    if not by_code[code] then
+        for variant_name, status in pairs(reg) do
+            variant_orphans[#variant_orphans + 1] = {
+                code = code,
+                variant_name = variant_name,
+                status = status,
+                why = "method not in ASDL inventory",
+            }
+        end
+    elseif not known_variant_names[code] then
+        for variant_name, status in pairs(reg) do
+            variant_orphans[#variant_orphans + 1] = {
+                code = code,
+                variant_name = variant_name,
+                status = status,
+                why = "method has no declared variant family",
+            }
+        end
+    else
+        for variant_name, status in pairs(reg) do
+            if not known_variant_names[code][variant_name] then
+                variant_orphans[#variant_orphans + 1] = {
+                    code = code,
+                    variant_name = variant_name,
+                    status = status,
+                    why = "unknown variant in declared family",
+                }
+            end
+        end
+    end
+end
+for code, fam in pairs(diag.variant_families) do
+    if not by_code[code] then
+        variant_orphans[#variant_orphans + 1] = {
+            code = code,
+            variant_name = fam.module .. "." .. fam.type_name,
+            status = "-",
+            why = "variant family declared for unknown method",
+        }
+    elseif not known_variant_names[code] then
+        variant_orphans[#variant_orphans + 1] = {
+            code = code,
+            variant_name = fam.module .. "." .. fam.type_name,
+            status = "-",
+            why = "declared variant family resolved to no variants",
+        }
+    end
+end
+table.sort(variant_orphans, function(a, b)
+    if a.code ~= b.code then return a.code < b.code end
+    return tostring(a.variant_name) < tostring(b.variant_name)
+end)
+
+-- ═══════════════════════════════════════════════════════════
+-- 4. Counts
 -- ═══════════════════════════════════════════════════════════
 
 local total = #methods
@@ -76,7 +225,12 @@ for _, m in ipairs(methods) do
     counts[m.status] = (counts[m.status] or 0) + 1
 end
 
--- Phase grouping
+local variant_total = #variants
+local variant_counts = { none = 0, stub = 0, partial = 0, real = 0 }
+for _, v in ipairs(variants) do
+    variant_counts[v.status] = (variant_counts[v.status] or 0) + 1
+end
+
 local phase_for = {
     Editor     = "editor",
     View       = "view",
@@ -96,15 +250,25 @@ local phase_labels = {
     scheduled  = "Scheduled → Kernel",
     kernel     = "Kernel",
 }
+
 local pc = {}
+local vpc = {}
 for _, p in ipairs(phase_order) do
     pc[p] = { total = 0, none = 0, stub = 0, partial = 0, real = 0 }
+    vpc[p] = { total = 0, none = 0, stub = 0, partial = 0, real = 0 }
 end
 for _, m in ipairs(methods) do
     local p = phase_for[m.module] or "?"
     if pc[p] then
         pc[p].total = pc[p].total + 1
         pc[p][m.status] = (pc[p][m.status] or 0) + 1
+    end
+end
+for _, v in ipairs(variants) do
+    local p = phase_for[v.method_module] or "?"
+    if vpc[p] then
+        vpc[p].total = vpc[p].total + 1
+        vpc[p][v.status] = (vpc[p][v.status] or 0) + 1
     end
 end
 
@@ -129,7 +293,7 @@ local function pct(n, t)
 end
 
 local status_icon  = { none = "·", stub = "░", partial = "▓", real = "█" }
-local status_label = { none = "    ", stub = "STUB", partial = "PART", real = "REAL" }
+local status_label = { none = "NONE", stub = "STUB", partial = "PART", real = "REAL" }
 
 -- ═══════════════════════════════════════════════════════════
 -- Summary
@@ -138,41 +302,66 @@ local status_label = { none = "    ", stub = "STUB", partial = "PART", real = "R
 local function print_summary()
     local done = counts.real + counts.partial
     print(string.format(
-        "Terra DAW: %d/%d methods implemented  │  %s real  %s partial  %s stub  %s none",
+        "Methods : %d/%d implemented  │  %s real  %s partial  %s stub  %s none",
         done, total, pct(counts.real, total), pct(counts.partial, total),
         pct(counts.stub, total), pct(counts.none, total)))
     print("  " .. bar(counts.real, counts.partial, counts.stub, counts.none, total, 50)
         .. string.format("  █ %d  ▓ %d  ░ %d  · %d",
             counts.real, counts.partial, counts.stub, counts.none))
+
+    if variant_total > 0 then
+        local vdone = variant_counts.real + variant_counts.partial
+        print(string.format(
+            "Variants: %d/%d implemented  │  %s real  %s partial  %s stub  %s none",
+            vdone, variant_total,
+            pct(variant_counts.real, variant_total),
+            pct(variant_counts.partial, variant_total),
+            pct(variant_counts.stub, variant_total),
+            pct(variant_counts.none, variant_total)))
+        print("  " .. bar(variant_counts.real, variant_counts.partial, variant_counts.stub, variant_counts.none, variant_total, 50)
+            .. string.format("  █ %d  ▓ %d  ░ %d  · %d",
+                variant_counts.real, variant_counts.partial, variant_counts.stub, variant_counts.none))
+    else
+        print("Variants: no variant families registered")
+    end
 end
 
 -- ═══════════════════════════════════════════════════════════
 -- Phase breakdown
 -- ═══════════════════════════════════════════════════════════
 
-local function print_phase()
+local function print_phase_table(title, per_phase, grand_total, grand_counts)
     print("")
+    print(title)
     print(string.format("%-26s %4s %4s %4s %4s %4s  %s",
         "Phase", "Tot", "Real", "Part", "Stub", "None", ""))
     print(string.rep("─", 85))
 
     for _, p in ipairs(phase_order) do
-        local c = pc[p]
+        local c = per_phase[p]
         print(string.format("%-26s %4d %4d %4d %4d %4d  %s",
             phase_labels[p] or p, c.total, c.real, c.partial, c.stub, c.none,
             bar(c.real, c.partial, c.stub, c.none, c.total, 24)))
     end
     print(string.rep("─", 85))
     print(string.format("%-26s %4d %4d %4d %4d %4d  %s",
-        "TOTAL", total, counts.real, counts.partial, counts.stub, counts.none,
-        bar(counts.real, counts.partial, counts.stub, counts.none, total, 24)))
+        "TOTAL", grand_total,
+        grand_counts.real, grand_counts.partial, grand_counts.stub, grand_counts.none,
+        bar(grand_counts.real, grand_counts.partial, grand_counts.stub, grand_counts.none, grand_total, 24)))
+end
+
+local function print_phase()
+    print_phase_table("Method phase breakdown", pc, total, counts)
+    if variant_total > 0 then
+        print_phase_table("Variant phase breakdown", vpc, variant_total, variant_counts)
+    end
 end
 
 -- ═══════════════════════════════════════════════════════════
 -- Detail
 -- ═══════════════════════════════════════════════════════════
 
-local function print_detail()
+local function print_method_detail()
     print("")
     print(string.format("%-42s %-4s  %s", "Method (from ASDL)", "Stat", "Signature"))
     print(string.rep("─", 100))
@@ -192,9 +381,37 @@ local function print_detail()
     end
 
     if #orphans > 0 then
-        print(string.format("\n  ── Orphan registrations (not in ASDL) ──"))
+        print(string.format("\n  ── Orphan method registrations (not in ASDL) ──"))
         for _, o in ipairs(orphans) do
             print(string.format("  ⚠ %-40s %-4s", o.code, o.status))
+        end
+    end
+end
+
+local function print_variant_detail()
+    if variant_total == 0 then return end
+
+    print("")
+    print("Variant detail")
+    print(string.rep("─", 100))
+
+    for _, g in ipairs(variant_groups) do
+        local fam = g.family_module .. "." .. g.family_type_name
+        print(string.format("\n  ▸ %-40s  [%s]  %d total  (%d real, %d part, %d stub, %d none)",
+            g.code, fam, g.total, g.real, g.partial, g.stub, g.none))
+        for _, v in ipairs(g.items) do
+            print(string.format("      %s %-24s %-4s",
+                status_icon[v.status] or "?",
+                v.variant_name,
+                status_label[v.status] or "?"))
+        end
+    end
+
+    if #variant_orphans > 0 then
+        print(string.format("\n  ── Orphan variant registrations ──"))
+        for _, o in ipairs(variant_orphans) do
+            print(string.format("  ⚠ %-40s %-24s %-4s  %s",
+                o.code, tostring(o.variant_name), tostring(o.status), o.why))
         end
     end
 end
@@ -215,7 +432,6 @@ local function print_runtime()
     print("")
     print("Running fixture through full pipeline...")
 
-    -- Reset call stats
     for k in pairs(diag.method_calls) do diag.method_calls[k] = nil end
 
     local function mp(id, name, val, mn, mx)
@@ -249,7 +465,6 @@ local function print_runtime()
     local ctx = { diagnostics = {}, ticks_per_beat = 960, sample_rate = 44100 }
     local ctr = 0
     ctx.alloc_graph_id = function() ctr = ctr + 1; return ctr end
-    ctx.alloc_note_asset_id = function() ctr = ctr + 1; return ctr end
 
     local ok, err = pcall(function()
         local a = project:lower(ctx)
@@ -262,7 +477,6 @@ local function print_runtime()
 
     print(ok and "  Pipeline OK" or ("  Pipeline FAILED: " .. tostring(err)))
 
-    -- Show call stats
     print("")
     print(string.format("  %-40s %5s %5s %5s", "Method", "Calls", "OK", "Fall"))
     print("  " .. string.rep("─", 60))
@@ -301,13 +515,17 @@ end
 
 print("╔══════════════════════════════════════════════════════╗")
 print("║         Terra DAW — Implementation Progress         ║")
-print("║  ASDL schema = source of truth for method inventory ║")
+print("║  schema text = methods   •   ASDL runtime = variants║")
 print("╚══════════════════════════════════════════════════════╝")
 
 print_summary()
 
 if mode == "phase" or mode == "all" then print_phase() end
-if mode == "detail" or mode == "all" then print_detail() end
+if mode == "detail" or mode == "all" then
+    print_method_detail()
+    print_variant_detail()
+end
+if mode == "variants" or mode == "variant" then print_variant_detail() end
 if mode == "runtime" or mode == "all" then print_runtime() end
 
 print("")

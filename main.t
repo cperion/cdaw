@@ -62,20 +62,9 @@ require("impl/init")
 local bootstrap = require("app/bootstrap")
 
 local sdl = terraui.sdl_gl_backend.new(font_path)
-local ui = terraui.dsl()
-local view_ctx = bootstrap.make_view_ctx(ui)
 local root_view = bootstrap.bootstrap_root()
-view_ctx.selection = root_view.focus.selection
-view_ctx.active_surface = root_view.focus.active_surface
-view_ctx.edit_piano_roll = bootstrap.get_edit_piano_roll and bootstrap.get_edit_piano_roll() or nil
 
-local decl = root_view:to_decl(view_ctx)
-if #view_ctx.diagnostics > 0 then
-    for i = 1, #view_ctx.diagnostics do
-        local d = view_ctx.diagnostics[i]
-        io.stderr:write(string.format("[%s] %s: %s\n", d.severity, d.code, d.message))
-    end
-end
+local decl = root_view:to_decl()
 
 local bound = bind.bind_component(decl, { text_backend = sdl.text_backend })
 local planned = plan.plan_component(bound)

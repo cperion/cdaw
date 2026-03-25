@@ -34,7 +34,7 @@ The DAW shell should be authored as:
 That means:
 
 - the top-level application shell is one TerraUI component specialization
-- `View.Root:to_decl(ViewCtx)` is the semantic entry point
+- `View.Root:to_decl()` is the semantic entry point
 - all major DAW surfaces lower to TerraUI subtrees inside that one component tree
 - `View.Identity` is the source of stable TerraUI keyed identity
 - `View.*Anchor` and `View.*Command.action_id` become TerraUI-local target and input wiring

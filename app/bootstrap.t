@@ -10,35 +10,6 @@ local C = require("impl/view/_support/common")
 
 local M = {}
 
-function M.make_view_ctx(ui)
-    return {
-        ui = ui,
-        dynamic_status_params = true,
-        diagnostics = {},
-        session_compile_pending = false,
-        session_compile_detail = nil,
-        compile_status_by_ref = {},
-        palette = C.make_palette(ui),
-        track_names = {
-            [1] = "Inst 1",
-            [2] = "Audio 2",
-            [3] = "FX 1",
-        },
-        device_names = {
-            [101] = "Poly Synth",
-            [102] = "EQ-5",
-            [103] = "Delay+",
-        },
-        clip_layout = {
-            [201] = { offset = 18, width = 120, label = "Inst 1 #1" },
-            [202] = { offset = 26, width = 98, label = "Audio 2 #1" },
-            [203] = { offset = 86, width = 142, label = "Lead Hook" },
-            [204] = { offset = 40, width = 110, label = "Beat Fill" },
-            [205] = { offset = 20, width = 90, label = "Lead Rise" },
-        },
-    }
-end
-
 function M.bootstrap_root()
     local list = C.list
 
@@ -500,21 +471,6 @@ function M.bootstrap_root()
             { note_4, 72, 3.0, 3.7, 120, false },
         },
     })
-    local piano_roll_editor = make_piano_roll("editor", {
-        lowest_pitch = 36,
-        highest_pitch = 60,
-        visible_start = 1.0,
-        visible_end = 5.0,
-        include_velocity = false,
-        note_specs = {
-            { note_1, 40, 1.0, 1.6, 112, false },
-            { note_2, 42, 1.6, 2.1, 98, false },
-            { note_3, 44, 2.1, 2.6, 86, false },
-            { note_4, 46, 2.6, 4.0, 120, true },
-        },
-    })
-    M._edit_piano_roll = piano_roll_editor
-
     local browser = V.BrowserView(
         "devices",
         "Everything",
@@ -628,10 +584,6 @@ function M.bootstrap_root()
         V.Focus(selection, active_surface),
         list()
     )
-end
-
-function M.get_edit_piano_roll()
-    return M._edit_piano_roll
 end
 
 return M

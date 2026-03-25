@@ -1,39 +1,27 @@
 -- ================================================================
 -- PHASE 2: RESOLVED
--- Ticks, codes, flat tables. Zero sum types.
+-- Ticks, codes, flat local slices. Zero sum types.
 -- ================================================================
 module Resolved {
 
     -- Design note:
     --   • Resolved is the flattened/runtime-facing semantic boundary.
+    --   • Flattening remains local to reusable slices rather than forcing every
+    --     later phase to depend on one giant project-global collector.
     --   • Later phases (classify/schedule/compile) should preserve totality:
     --     one failing track/node/asset should degrade locally to valid
     --     passthrough/silence/empty runtime forms plus diagnostics rather than
     --     invalidating the entire project compilation.
 
     Project = (
-        Resolved.Transport  transport,
-        Resolved.TempoMap   tempo_map,
-        Resolved.Track*     tracks,
-        Resolved.Scene*     scenes,
-        Resolved.Clip*      all_clips,
-        Resolved.Slot*      all_slots,
-        Resolved.Send*      all_sends,
-
-        Resolved.Graph*     all_graphs,
-        Resolved.GraphPort* all_graph_ports,
-        Resolved.Node*      all_nodes,
-        Resolved.ChildGraphRef* all_child_graph_refs,
-        Resolved.Wire*      all_wires,
-        Resolved.Param*     all_params,
-        Resolved.ModSlot*   all_mod_slots,
-        Resolved.ModRoute*  all_mod_routes,
-        Resolved.AutoCurve* all_curves,
-
-        Resolved.AssetBank  assets
+        Resolved.Transport   transport,
+        Resolved.TempoMap    tempo_map,
+        Resolved.TrackSlice* track_slices,
+        Resolved.Scene*      scenes,
+        Resolved.AssetBank   assets
     ) unique
     methods {
-        classify(ClassifyCtx ctx) -> Classified.Project
+        classify() -> Classified.Project
     }
 
     Transport = (
@@ -45,15 +33,31 @@ module Resolved {
         number loop_start_tick, number loop_end_tick
     )
     methods {
-        classify(ClassifyCtx ctx) -> Classified.Transport
+        classify() -> Classified.Transport
     }
 
     TempoMap = (Resolved.TempoSeg* segments)
     methods {
-        classify(ClassifyCtx ctx) -> Classified.TempoMap
+        classify() -> Classified.TempoMap
     }
 
     TempoSeg = (number start_tick, number bpm, number base_sample, number samples_per_tick)
+
+    -- TrackSlice is the reusable resolved compilation slice for one track.
+    -- It owns the track's mixer params, launcher/send content, and the fully
+    -- resolved device graph slice.
+    TrackSlice = (
+        Resolved.Track      track,
+        Resolved.Param*     mixer_params,
+        Resolved.AutoCurve* mixer_curves,
+        Resolved.Clip*      clips,
+        Resolved.Slot*      slots,
+        Resolved.Send*      sends,
+        Resolved.GraphSlice device_graph
+    ) unique
+    methods {
+        classify() -> Classified.TrackSlice
+    }
 
     Track = (
         number id, string name, number channels,
@@ -68,9 +72,6 @@ module Resolved {
         boolean armed, boolean monitor_input,
         boolean phase_invert
     )
-    methods {
-        classify(ClassifyCtx ctx) -> Classified.Track
-    }
 
     Send = (number id, number target_track_id,
             number level_param_id,
@@ -100,6 +101,24 @@ module Resolved {
              number quant_code, number? tempo_override)
     SceneSlot = (number track_id, number slot_index, boolean stop_others)
 
+    -- GraphSlice is the reusable resolved compilation slice for one graph
+    -- subtree. It contains the graph header plus all flat local tables needed
+    -- by later phases.
+    GraphSlice = (
+        Resolved.Graph*         graphs,
+        Resolved.GraphPort*     graph_ports,
+        Resolved.Node*          nodes,
+        Resolved.ChildGraphRef* child_graph_refs,
+        Resolved.Wire*          wires,
+        Resolved.Param*         params,
+        Resolved.ModSlot*       mod_slots,
+        Resolved.ModRoute*      mod_routes,
+        Resolved.AutoCurve*     curves
+    ) unique
+    methods {
+        classify() -> Classified.GraphSlice
+    }
+
     -- ── Flattened signal graph ──
 
     -- layout_code: 0=serial, 1=free, 2=parallel, 3=switched, 4=split
@@ -111,9 +130,6 @@ module Resolved {
         number first_precord, number precord_count,
         number arg0, number arg1, number arg2, number arg3
     )
-    methods {
-        classify(ClassifyCtx ctx) -> Classified.Graph
-    }
 
     Node = (
         number id, number node_kind_code,
@@ -126,9 +142,6 @@ module Resolved {
         PluginHandle? plugin_handle,
         number arg0, number arg1, number arg2, number arg3
     )
-    methods {
-        classify(ClassifyCtx ctx) -> Classified.Node
-    }
 
     Wire = (number from_signal, number to_signal)
 
@@ -152,9 +165,6 @@ module Resolved {
         Resolved.ParamSourceRef source,
         number combine_code, number smoothing_code, number smoothing_ms
     )
-    methods {
-        classify(ClassifyCtx ctx) -> Classified.Param
-    }
 
     ParamSourceRef = (number source_kind, number value, number? curve_id)
 
@@ -163,21 +173,18 @@ module Resolved {
 
     ModSlot = (
         number slot_index, number parent_node_id,
-        number modulator_node_id, boolean per_voice,
+        number modulator_node_id, number modulator_kind_code,
+        number first_param, number param_count,
+        number arg0, number arg1, number arg2, number arg3,
+        boolean per_voice,
         number first_route, number route_count
     )
-    methods {
-        classify(ClassifyCtx ctx) -> Classified.ModSlot
-    }
 
     ModRoute = (
         number mod_slot_index, number target_param_id,
         number depth, boolean bipolar,
         number? scale_mod_slot, number? scale_param_id
     )
-    methods {
-        classify(ClassifyCtx ctx) -> Classified.ModRoute
-    }
 
     EQBand = (number type_code)
 

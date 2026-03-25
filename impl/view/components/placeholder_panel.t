@@ -2,11 +2,8 @@
 -- Shared degraded/error placeholder subtree for View lowerings.
 --
 -- fallback_node() builds a visible error placeholder panel.
--- safe_node() is DEPRECATED — use diag.wrap() with a fallback that
--- calls fallback_node() instead.  Kept temporarily for compatibility.
 
 local C = require("impl/view/_support/common")
-local diag = require("impl/_support/diagnostics")
 
 local M = {}
 
@@ -148,15 +145,6 @@ function M.fallback_node(ctx, key, title, detail)
             width = ui.grow(),
         },
     }
-end
-
--- DEPRECATED: use diag.wrap() instead.
--- Kept for backward compatibility during migration.
-function M.safe_node(ctx, key, code, f)
-    local ok, out = pcall(f)
-    if ok then return out end
-    C.record_diag(ctx, "error", code, out)
-    return M.fallback_node(ctx, key, code, tostring(out))
 end
 
 return M

@@ -10,6 +10,8 @@ local C = require("impl/view/_support/common")
 local T = require("impl/view/components/text")
 local P = require("impl/view/components/placeholder_panel")
 
+local M = {}
+
 local function note_name(pitch)
     local names = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }
     local octave = math.floor(pitch / 12) - 1
@@ -197,7 +199,7 @@ local function lower_velocity_lane(piano_roll, variant, ctx, scope)
     } (children)
 end
 
-function V.PianoRollView:to_decl(ctx)
+local function lower(self, ctx)
     return diag.wrap(ctx, "view.piano_roll_view.to_decl", "real", function()
         local ui = ctx.ui
         local p = C.palette(ctx)
@@ -316,4 +318,14 @@ function V.PianoRollView:to_decl(ctx)
     end)
 end
 
-return true
+local to_decl_impl = terralib.memoize(function(self)
+    return lower(self, C.new_view_ctx())
+end)
+
+M.lower = lower
+
+function V.PianoRollView:to_decl()
+    return to_decl_impl(self)
+end
+
+return M

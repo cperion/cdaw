@@ -12,7 +12,9 @@ local T = require("impl/view/components/text")
 local P = require("impl/view/components/placeholder_panel")
 local tab_view = require("impl/view/inspector/tab_view")
 
-function V.InspectorView:to_decl(ctx)
+local M = {}
+
+local function lower(self, ctx)
     return diag.wrap(ctx, "view.inspector_view.to_decl", "real", function()
         local ui = ctx.ui
         local p = C.palette(ctx)
@@ -62,4 +64,14 @@ function V.InspectorView:to_decl(ctx)
     end)
 end
 
-return true
+local to_decl_impl = terralib.memoize(function(self)
+    return lower(self, C.new_view_ctx())
+end)
+
+M.lower = lower
+
+function V.InspectorView:to_decl()
+    return to_decl_impl(self)
+end
+
+return M

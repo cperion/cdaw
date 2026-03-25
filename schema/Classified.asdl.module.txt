@@ -5,37 +5,13 @@
 module Classified {
 
     Project = (
-        Classified.Transport  transport,
-        Classified.TempoMap   tempo_map,
-        Classified.Track*     tracks,
-        Classified.Scene*     scenes,
-        Classified.Clip*      clips,
-        Classified.Slot*      slots,
-        Classified.Send*      sends,
-
-        Classified.Graph*     graphs,
-        Classified.GraphPort* graph_ports,
-        Classified.Node*      nodes,
-        Classified.ChildGraphRef* child_graph_refs,
-        Classified.Wire*      wires,
-        Classified.FeedbackPair* feedback_pairs,
-        Classified.Param*     params,
-        Classified.ModSlot*   mod_slots,
-        Classified.ModRoute*  mod_routes,
-
-        Classified.Literal*   literals,
-        Classified.InitOp*    init_ops,
-        Classified.BlockOp*   block_ops,
-        Classified.BlockPt*   block_pts,
-        Classified.SampleOp*  sample_ops,
-        Classified.EventOp*   event_ops,
-        Classified.VoiceOp*   voice_ops,
-
-        number total_signals,
-        number total_state_slots
+        Classified.Transport   transport,
+        Classified.TempoMap    tempo_map,
+        Classified.TrackSlice* track_slices,
+        Classified.Scene*      scenes
     ) unique
     methods {
-        schedule(ScheduleCtx ctx) -> Scheduled.Project
+        schedule() -> Scheduled.Project
     }
 
     Transport = (
@@ -47,16 +23,38 @@ module Classified {
         number loop_start_tick, number loop_end_tick
     )
     methods {
-        schedule(ScheduleCtx ctx) -> Scheduled.Transport
+        schedule() -> Scheduled.Transport
     }
 
     TempoMap = (Classified.TempoSeg* segments)
     methods {
-        schedule(ScheduleCtx ctx) -> Scheduled.TempoMap
+        schedule() -> Scheduled.TempoMap
     }
 
     TempoSeg = (number start_tick, number end_tick, number bpm,
                 number base_sample, number samples_per_tick)
+
+    -- TrackSlice is the reusable classified scheduling slice for one track.
+    -- It owns the track mixer data, local launcher/send data, and the fully
+    -- classified device-graph slice.
+    TrackSlice = (
+        Classified.Track      track,
+        Classified.Param*     mixer_params,
+        Classified.Clip*      clips,
+        Classified.Slot*      slots,
+        Classified.Send*      sends,
+        Classified.Literal*   mixer_literals,
+        Classified.InitOp*    mixer_init_ops,
+        Classified.BlockOp*   mixer_block_ops,
+        Classified.BlockPt*   mixer_block_pts,
+        Classified.SampleOp*  mixer_sample_ops,
+        Classified.EventOp*   mixer_event_ops,
+        Classified.VoiceOp*   mixer_voice_ops,
+        Classified.GraphSlice device_graph
+    ) unique
+    methods {
+        schedule(Classified.Transport transport, Classified.TempoMap tempo_map) -> Scheduled.TrackProgram
+    }
 
     Track = (
         number id, number channels,
@@ -71,9 +69,6 @@ module Classified {
         boolean muted_structural, boolean solo_structural,
         boolean armed, boolean monitor_input
     )
-    methods {
-        schedule(ScheduleCtx ctx) -> Scheduled.TrackPlan
-    }
 
     Send = (number id, number target_track_id,
             Classified.Binding level,
@@ -101,6 +96,33 @@ module Classified {
     Scene = (number id, number first_slot, number slot_count,
              number quant_code, number? tempo_override)
 
+    -- GraphSlice is the reusable classified scheduling slice for one graph
+    -- subtree. It contains the graph header plus all local signal/control
+    -- tables needed by later scheduling and compilation.
+    GraphSlice = (
+        Classified.Graph*         graphs,
+        Classified.GraphPort*     graph_ports,
+        Classified.Node*          nodes,
+        Classified.ChildGraphRef* child_graph_refs,
+        Classified.Wire*          wires,
+        Classified.FeedbackPair*  feedback_pairs,
+        Classified.Param*         params,
+        Classified.ModSlot*       mod_slots,
+        Classified.ModRoute*      mod_routes,
+        Classified.Literal*       literals,
+        Classified.InitOp*        init_ops,
+        Classified.BlockOp*       block_ops,
+        Classified.BlockPt*       block_pts,
+        Classified.SampleOp*      sample_ops,
+        Classified.EventOp*       event_ops,
+        Classified.VoiceOp*       voice_ops,
+        number                    total_signals,
+        number                    total_state_slots
+    ) unique
+    methods {
+        schedule(Classified.Transport transport, Classified.TempoMap tempo_map) -> Scheduled.GraphProgram
+    }
+
     -- ── Signal graph (topologically sorted) ──
 
     Graph = (
@@ -112,9 +134,6 @@ module Classified {
         number first_feedback, number feedback_count,
         number first_signal, number signal_count
     )
-    methods {
-        schedule(ScheduleCtx ctx) -> Scheduled.GraphPlan
-    }
 
     Node = (
         number id, number node_kind_code,
@@ -127,9 +146,6 @@ module Classified {
         number runtime_state_slot,
         number arg0, number arg1, number arg2, number arg3
     )
-    methods {
-        schedule(ScheduleCtx ctx) -> Scheduled.NodeJob
-    }
 
     Wire = (number from_signal, number to_signal, number weight)
 
@@ -163,8 +179,12 @@ module Classified {
 
     ModSlot = (
         number slot_index, number parent_node_id,
-        number modulator_node_id, boolean per_voice,
+        number modulator_node_id, number modulator_kind_code,
+        number first_param, number param_count,
+        number arg0, number arg1, number arg2, number arg3,
+        boolean per_voice,
         number first_route, number route_count,
+        number state_size, number runtime_state_slot,
         Classified.Binding output_binding
     )
 
@@ -182,7 +202,7 @@ module Classified {
     -- rate_class: 0=literal 1=init 2=block 3=sample 4=event 5=voice
     Binding = (number rate_class, number slot)
     methods {
-        schedule(ScheduleCtx ctx) -> Scheduled.Binding
+        schedule() -> Scheduled.Binding
     }
 
     Literal   = (number value)

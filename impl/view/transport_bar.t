@@ -14,7 +14,9 @@ local B = require("impl/view/components/button")
 local I = require("impl/view/components/icons")
 local P = require("impl/view/components/placeholder_panel")
 
-function V.TransportBar:to_decl(ctx)
+local M = {}
+
+local function lower(self, ctx)
     return diag.wrap(ctx, "view.transport_bar.to_decl", "real", function()
         local ui = ctx.ui
         local p = C.palette(ctx)
@@ -24,7 +26,6 @@ function V.TransportBar:to_decl(ctx)
         local rec_cmd = C.find_command(self.commands, V.TCCToggleRecord)
         local loop_cmd = C.find_command(self.commands, V.TCCToggleLoop)
 
-        -- Left cluster: project + transport controls
         local left_children = {
             B.flat_button(ctx, "FILE", nil, {
                 key = scope:child("file"),
@@ -66,7 +67,6 @@ function V.TransportBar:to_decl(ctx)
             align_y = ui.align_y.center,
         } (left_children)
 
-        -- Center: tempo/time display (instrument-like, high legibility)
         local center = ui.row {
             key = scope:child("center"),
             width = ui.fit(),
@@ -99,7 +99,6 @@ function V.TransportBar:to_decl(ctx)
             }),
         }
 
-        -- Right cluster: ADD / EDIT
         local right_children = {}
         C.push(right_children, B.flat_button(ctx, "ADD", nil, {
             key = scope:child("add"),
@@ -150,4 +149,14 @@ function V.TransportBar:to_decl(ctx)
     end)
 end
 
-return true
+local to_decl_impl = terralib.memoize(function(self)
+    return lower(self, C.new_view_ctx())
+end)
+
+M.lower = lower
+
+function V.TransportBar:to_decl()
+    return to_decl_impl(self)
+end
+
+return M

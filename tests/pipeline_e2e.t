@@ -24,10 +24,6 @@ local function make_ctx()
             local id = 0
             return function() id = id + 1; return id end
         end)(),
-        alloc_note_asset_id = (function()
-            local id = 0
-            return function() id = id + 1; return id end
-        end)(),
     }
 end
 
@@ -59,32 +55,32 @@ local editor_project = D.Editor.Project(
 local ctx = make_ctx()
 
 -- Phase 0→1: Editor → Authored
-local authored = editor_project:lower(ctx)
+local authored = editor_project:lower()
 assert(authored ~= nil, "lower returned nil")
 assert(authored.name == "Test Project", "name not preserved")
 assert(#authored.tracks == 0, "expected 0 tracks")
 print("  Editor→Authored: OK (" .. #ctx.diagnostics .. " diags)")
 
 -- Phase 1→2: Authored → Resolved
-local resolved = authored:resolve(ctx)
+local resolved = authored:resolve()
 assert(resolved ~= nil, "resolve returned nil")
-assert(#resolved.tracks == 0, "expected 0 tracks")
+assert(#resolved.track_slices == 0, "expected 0 track_slices")
 print("  Authored→Resolved: OK (" .. #ctx.diagnostics .. " diags)")
 
 -- Phase 2→3: Resolved → Classified
-local classified = resolved:classify(ctx)
+local classified = resolved:classify()
 assert(classified ~= nil, "classify returned nil")
-assert(#classified.tracks == 0, "expected 0 tracks")
+assert(#classified.track_slices == 0, "expected 0 track_slices")
 print("  Resolved→Classified: OK (" .. #ctx.diagnostics .. " diags)")
 
 -- Phase 3→4: Classified → Scheduled
-local scheduled = classified:schedule(ctx)
+local scheduled = classified:schedule()
 assert(scheduled ~= nil, "schedule returned nil")
-assert(#scheduled.tracks == 0, "expected 0 tracks")
+assert(#scheduled.track_programs == 0, "expected 0 track_programs")
 print("  Classified→Scheduled: OK (" .. #ctx.diagnostics .. " diags)")
 
 -- Phase 4→5: Scheduled → Kernel
-local kernel = scheduled:compile(ctx)
+local kernel = scheduled:compile()
 assert(kernel ~= nil, "compile returned nil")
 assert(kernel.buffers ~= nil, "kernel missing buffers")
 assert(kernel.state ~= nil, "kernel missing state")
@@ -177,31 +173,34 @@ local project2 = D.Editor.Project(
 
 ctx = make_ctx()
 
-local a2 = project2:lower(ctx)
+local a2 = project2:lower()
 assert(a2 ~= nil, "lower returned nil")
 assert(a2.name == "Test With Track")
 assert(#a2.tracks == 1, "expected 1 track, got " .. #a2.tracks)
 assert(a2.tracks[1].id == 1, "track id not preserved")
 assert(a2.tracks[1].name == "Track 1", "track name not preserved")
+assert(#a2.assets.notes == 1, "expected 1 lowered note asset")
+assert(a2.assets.notes[1].id == 1, "note asset id should match clip id")
+assert(a2.tracks[1].clips[1].content.note_asset_id == 1, "clip should reference lowered note asset")
 print("  Editor→Authored: OK (tracks=" .. #a2.tracks .. ", diags=" .. #ctx.diagnostics .. ")")
 
-local r2 = a2:resolve(ctx)
+local r2 = a2:resolve()
 assert(r2 ~= nil, "resolve returned nil")
-assert(#r2.tracks == 1)
-assert(r2.tracks[1].id == 1)
-print("  Authored→Resolved: OK (tracks=" .. #r2.tracks .. ", diags=" .. #ctx.diagnostics .. ")")
+assert(#r2.track_slices == 1)
+assert(r2.track_slices[1].track.id == 1)
+print("  Authored→Resolved: OK (track_slices=" .. #r2.track_slices .. ", diags=" .. #ctx.diagnostics .. ")")
 
-local c2 = r2:classify(ctx)
+local c2 = r2:classify()
 assert(c2 ~= nil, "classify returned nil")
-assert(#c2.tracks == 1)
-print("  Resolved→Classified: OK (tracks=" .. #c2.tracks .. ", diags=" .. #ctx.diagnostics .. ")")
+assert(#c2.track_slices == 1)
+print("  Resolved→Classified: OK (track_slices=" .. #c2.track_slices .. ", diags=" .. #ctx.diagnostics .. ")")
 
-local s2 = c2:schedule(ctx)
+local s2 = c2:schedule()
 assert(s2 ~= nil, "schedule returned nil")
-assert(#s2.tracks == 1)
-print("  Classified→Scheduled: OK (tracks=" .. #s2.tracks .. ", diags=" .. #ctx.diagnostics .. ")")
+assert(#s2.track_programs == 1)
+print("  Classified→Scheduled: OK (track_programs=" .. #s2.track_programs .. ", diags=" .. #ctx.diagnostics .. ")")
 
-local k2 = s2:compile(ctx)
+local k2 = s2:compile()
 assert(k2 ~= nil, "compile returned nil")
 print("  Scheduled→Kernel: OK (diags=" .. #ctx.diagnostics .. ")")
 

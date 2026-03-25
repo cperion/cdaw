@@ -32,7 +32,7 @@ module Authored {
         Authored.AssetBank      assets
     ) unique
     methods {
-        resolve(ResolveCtx ctx) -> Resolved.Project
+        resolve(number ticks_per_beat) -> Resolved.Project
     }
 
     Transport = (
@@ -44,7 +44,7 @@ module Authored {
         Authored.TimeRange? loop_range
     )
     methods {
-        resolve(ResolveCtx ctx) -> Resolved.Transport
+        resolve(number ticks_per_beat) -> Resolved.Transport
     }
 
     TimeRange = (number start_beats, number end_beats)
@@ -58,7 +58,7 @@ module Authored {
         Authored.SigPoint*   signatures
     )
     methods {
-        resolve(ResolveCtx ctx) -> Resolved.TempoMap
+        resolve(number ticks_per_beat, number sample_rate) -> Resolved.TempoMap
     }
 
     TempoPoint = (number at_beats, number bpm)
@@ -91,7 +91,7 @@ module Authored {
         boolean phase_invert
     )
     methods {
-        resolve(ResolveCtx ctx) -> Resolved.Track
+        resolve(number ticks_per_beat) -> Resolved.TrackSlice
     }
 
     -- Authored form of track recording / monitoring source semantics.
@@ -109,7 +109,7 @@ module Authored {
         boolean pre_fader, boolean enabled
     )
     methods {
-        resolve(ResolveCtx ctx) -> Resolved.Send
+        resolve() -> Resolved.Send
     }
 
     -- ────────────────────────────────────────────────────────
@@ -126,7 +126,7 @@ module Authored {
         Authored.FadeSpec? fade_out
     )
     methods {
-        resolve(ResolveCtx ctx) -> Resolved.Clip
+        resolve(number ticks_per_beat) -> Resolved.Clip
     }
 
     ClipContent
@@ -146,7 +146,7 @@ module Authored {
         boolean enabled
     )
     methods {
-        resolve(ResolveCtx ctx) -> Resolved.Slot
+        resolve() -> Resolved.Slot
     }
 
     SlotContent
@@ -180,7 +180,7 @@ module Authored {
         number? tempo_override
     )
     methods {
-        resolve(ResolveCtx ctx) -> Resolved.Scene
+        resolve() -> Resolved.Scene
     }
 
     SceneSlot = (number track_id, number slot_index, boolean stop_others)
@@ -224,7 +224,7 @@ module Authored {
         Authored.SignalDomain domain
     )
     methods {
-        resolve(ResolveCtx ctx) -> Resolved.Graph
+        resolve(number ticks_per_beat) -> Resolved.GraphSlice
     }
 
     -- GraphLayout is the graph-level composition contract.
@@ -381,9 +381,6 @@ module Authored {
         number?              x_pos,
         number?              y_pos
     )
-    methods {
-        resolve(ResolveCtx ctx) -> Resolved.Node
-    }
 
     ChildGraph = (
         Authored.ChildGraphRole role,
@@ -419,9 +416,6 @@ module Authored {
         Authored.ModRoute*  routings,
         boolean             per_voice
     )
-    methods {
-        resolve(ResolveCtx ctx) -> Resolved.ModSlot
-    }
 
     ModRoute = (
         number  target_param_id,
@@ -445,7 +439,7 @@ module Authored {
         Authored.Smoothing   smoothing
     )
     methods {
-        resolve(ResolveCtx ctx) -> Resolved.Param
+        resolve(number ticks_per_beat) -> Resolved.Param
     }
 
     ParamSource
@@ -628,7 +622,7 @@ module Authored {
         | CVOutDevice(number port)
         | MeterNode() | SpectrumAnalyzer()
     methods {
-        resolve(ResolveCtx ctx) -> Resolved.NodeKindRef
+        resolve() -> Resolved.NodeKindRef
     }
 
     -- ── Sub-types ──
@@ -683,7 +677,7 @@ module Authored {
         Authored.ZoneBank*       zone_banks
     )
     methods {
-        resolve(ResolveCtx ctx) -> Resolved.AssetBank
+        resolve(number ticks_per_beat) -> Resolved.AssetBank
     }
 
     AudioAsset     = (number id, string path, number sample_rate,

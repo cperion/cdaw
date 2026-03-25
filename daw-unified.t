@@ -13,13 +13,7 @@ D:Extern("TerraQuote",   terralib.isquote)
 D:Extern("TerraFunc",    terralib.isfunction)
 D:Extern("PluginHandle", function(o) return type(o) == "userdata" end)
 
-D:Extern("ViewCtx",      function(o) return type(o) == "table" end)
 D:Extern("TerraUIDecl",  function(o) return type(o) == "table" end)
-D:Extern("LowerCtx",     function(o) return type(o) == "table" end)
-D:Extern("ResolveCtx",   function(o) return type(o) == "table" end)
-D:Extern("ClassifyCtx",  function(o) return type(o) == "table" end)
-D:Extern("ScheduleCtx",  function(o) return type(o) == "table" end)
-D:Extern("CompileCtx",   function(o) return type(o) == "table" end)
 
 local function dirname(path)
     local dir = path:match("^(.*)/[^/]*$")

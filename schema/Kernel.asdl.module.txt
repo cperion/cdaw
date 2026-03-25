@@ -10,6 +10,13 @@ module Kernel {
     --     points are valid and local jobs/devices degrade to stable fallback
     --     behavior (silence, passthrough, zero control) rather than malformed
     --     machine code or missing API functions.
+    --   • The atomic reusable compile product is Kernel.Unit: one function,
+    --     one owned state ABI.
+
+    Unit = (
+        TerraFunc fn,
+        TerraType state_t
+    ) unique
 
     Buffers = (
         TerraType mono_t,
@@ -29,23 +36,23 @@ module Kernel {
     )
 
     API = (
-        TerraQuote init_fn,
-        TerraQuote destroy_fn,
-        TerraQuote render_block_fn,
-        TerraQuote set_param_fn,
-        TerraQuote queue_launch_fn,
-        TerraQuote queue_scene_fn,
-        TerraQuote stop_track_fn,
-        TerraQuote note_on_fn,
-        TerraQuote note_off_fn,
-        TerraQuote poly_pressure_fn,
-        TerraQuote cc_fn,
-        TerraQuote pitch_bend_fn,
-        TerraQuote timbre_fn,
-        TerraQuote get_peak_fn,
-        TerraQuote get_position_fn,
-        TerraQuote get_param_fn,
-        TerraQuote get_mod_fn
+        TerraFunc init_fn,
+        TerraFunc destroy_fn,
+        TerraFunc render_block_fn,
+        TerraFunc set_param_fn,
+        TerraFunc queue_launch_fn,
+        TerraFunc queue_scene_fn,
+        TerraFunc stop_track_fn,
+        TerraFunc note_on_fn,
+        TerraFunc note_off_fn,
+        TerraFunc poly_pressure_fn,
+        TerraFunc cc_fn,
+        TerraFunc pitch_bend_fn,
+        TerraFunc timbre_fn,
+        TerraFunc get_peak_fn,
+        TerraFunc get_position_fn,
+        TerraFunc get_param_fn,
+        TerraFunc get_mod_fn
     )
 
     Project = (

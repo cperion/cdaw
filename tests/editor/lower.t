@@ -234,13 +234,7 @@ do
             L{D.Editor.NoteExprPoint(0, 0.5)})},
         0, 4
     )
-    local nid = 0
-    local ctx = {
-        diagnostics = {},
-        alloc_note_asset_id = function() nid = nid + 1; return nid end,
-        intern_note_asset = function(self, a) end,
-    }
-    local r = nr:lower(ctx)
+    local r = nr:lower()
     check(r ~= nil, "produced NoteAsset")
     if r then
         check(#r.notes >= 1, "has notes")
@@ -364,6 +358,10 @@ end
 -- ══════════════════════════════════════════
 print("16. editor.project.lower — full integration")
 do
+    local note_region = D.Editor.NoteRegion(
+        L{D.Editor.Note(9, 60, 0, 1, 100, nil, false, nil)},
+        L()
+    )
     local project = D.Editor.Project(
         "TestProject", "Author", 1,
         D.Editor.Transport(44100, 512, 120, 0, 4, 4, D.Editor.QNone, false, nil),
@@ -371,7 +369,15 @@ do
             D.Editor.ParamValue(0, "v", 1, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "p", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{}),
-            L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
+            L{D.Editor.Clip(
+                7,
+                D.Editor.NoteContent(note_region),
+                0, 4, 0, 0,
+                false,
+                D.Editor.ParamValue(0, "gain", 1, 0, 4, D.Editor.StaticValue(1), D.Editor.Replace, D.Editor.NoSmoothing),
+                nil, nil, nil
+            )},
+            L(), L(), nil, nil, false, false, false, false, false, nil)},
         L{D.Editor.Scene(1, "S1", L{}, nil, nil)},
         D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L{}),
         D.Authored.AssetBank(L(), L(), L(), L(), L())
@@ -383,6 +389,10 @@ do
     check(#r.tracks == 1, "1 track")
     check(#r.scenes == 1, "1 scene")
     check(r.transport.sample_rate == 44100, "transport.sample_rate")
+    check(#r.assets.notes == 1, "1 lowered note asset")
+    check(r.assets.notes[1].id == 7, "note asset id follows clip id")
+    check(r.tracks[1].clips[1].content.kind == "NoteContent", "clip lowered as note content")
+    check(r.tracks[1].clips[1].content.note_asset_id == 7, "clip note asset id preserved")
     print("  PASS")
 end
 

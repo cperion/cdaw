@@ -9,48 +9,14 @@ local D = require("daw-unified")
 require("impl/init")
 local F = require("impl/_support/fallbacks")
 local L = F.L
-local C = require("impl/view/_support/common")
-local DSL = require("terraui/lib/dsl")
-
 local pass, fail = 0, 0
 local function check(c, m) if c then pass=pass+1 else fail=fail+1; print("  FAIL: "..m) end end
 
-local ui = DSL.dsl()
 local V = D.View
-
--- ── Minimal Editor project for ctx ──
-local editor_project = D.Editor.Project(
-    "ViewTest", nil, 1,
-    D.Editor.Transport(44100, 256, 120, 0, 4, 4, D.Editor.QNone, false, nil),
-    L{D.Editor.Track(1, "Track 1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
-        D.Editor.ParamValue(0, "v", 1, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing),
-        D.Editor.ParamValue(1, "p", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
-        D.Editor.DeviceChain(L{
-            D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-                10, "Gain", D.Authored.GainNode(),
-                L{D.Editor.ParamValue(0, "g", 1, 0, 4, D.Editor.StaticValue(0.5),
-                    D.Editor.Replace, D.Editor.NoSmoothing)},
-                L(), nil, nil, nil, true, nil))}),
-        L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
-    L{D.Editor.Scene(1, "Scene 1", L{}, nil, nil)},
-    D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
-    D.Authored.AssetBank(L(), L(), L(), L(), L()))
-
-local ctx = {
-    ui = ui,
-    palette = C.make_palette(ui),
-    diagnostics = {},
-    project = editor_project,
-    track_names = {[1] = "Track 1"},
-    device_names = {[10] = "Gain"},
-    selection = nil,
-    active_surface = nil,
-}
 
 -- ── Helper ──
 local function id(key) return V.Identity(key or "test", V.IdentitySemantic(V.ProjectRef)) end
 local function id_k(key, ref) return V.Identity(key, V.IdentitySemantic(ref)) end
-local track = editor_project.tracks[1]
 
 local function test_view(idx, name, build_fn)
     io.write(string.format("%2d. %s", idx, name))
@@ -60,7 +26,7 @@ local function test_view(idx, name, build_fn)
         print("  FAIL (construct)")
         return
     end
-    local ok2, result = pcall(function() return view_obj:to_decl(ctx) end)
+    local ok2, result = pcall(function() return view_obj:to_decl() end)
     if ok2 and result ~= nil then
         check(true, name)
         print("  PASS")

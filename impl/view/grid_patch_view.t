@@ -12,6 +12,8 @@ local T = require("impl/view/components/text")
 local B = require("impl/view/components/button")
 local P = require("impl/view/components/placeholder_panel")
 
+local M = {}
+
 -- ── Helper: lower a single module view ──
 
 local function lower_module(mod, ctx)
@@ -171,7 +173,7 @@ end
 -- GridPatchView:to_decl
 -- ═══════════════════════════════════════════════════════════════════════
 
-function V.GridPatchView:to_decl(ctx)
+local function lower(self, ctx)
     return diag.wrap(ctx, "view.grid_patch_view.to_decl", "real", function()
         local ui = ctx.ui
         local p = C.palette(ctx)
@@ -267,4 +269,14 @@ function V.GridPatchView:to_decl(ctx)
     end)
 end
 
-return true
+local to_decl_impl = terralib.memoize(function(self)
+    return lower(self, C.new_view_ctx())
+end)
+
+M.lower = lower
+
+function V.GridPatchView:to_decl()
+    return to_decl_impl(self)
+end
+
+return M

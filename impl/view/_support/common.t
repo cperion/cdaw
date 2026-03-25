@@ -5,6 +5,30 @@ local List = require("terralist")
 
 local M = {}
 
+function M.new_view_ctx(opts)
+    opts = opts or {}
+    local ui = opts.ui
+    if ui == nil then
+        local DSL = require("terraui/lib/dsl")
+        ui = DSL.dsl()
+    end
+    return {
+        ui = ui,
+        palette = opts.palette or M.make_palette(ui),
+        diagnostics = opts.diagnostics or {},
+        selection = opts.selection,
+        active_surface = opts.active_surface,
+        dynamic_status_params = opts.dynamic_status_params == true,
+        session_compile_pending = opts.session_compile_pending,
+        session_compile_detail = opts.session_compile_detail,
+        compile_status_by_ref = opts.compile_status_by_ref,
+        track_names = opts.track_names,
+        device_names = opts.device_names,
+        param_names = opts.param_names,
+        clip_layout = opts.clip_layout,
+    }
+end
+
 function M.push(t, v)
     t[#t + 1] = v
     return v

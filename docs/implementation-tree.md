@@ -2,6 +2,10 @@
 
 This file is the **feature-completion roadmap** for Terra DAW v3.
 
+For the architectural refactor intent behind the recent ASDL redesign, see:
+
+- `docs/asdl-purity-refactor-plan.md`
+
 It complements the ASDL/method progress tooling:
 
 - `tools/progress.t` answers: **do all declared methods exist, and how complete are their variant families?**
@@ -88,11 +92,11 @@ Goal: editing, UI projection, persistence, and runtime control all connect.
 
 ### Immediate next slice
 
-Do this next before anything else:
+Current immediate focus after the slice/program/unit refactor:
 
-- [x] `impl/classified/project.t`: populate real scheduled job lists
-- [x] `impl/scheduled/project.t`: execute those job lists directly
-- [x] `tests/`: add one end-to-end proof that scheduled jobs are the source of final audio
+- [x] remove remaining non-schema public helper methods on raw scheduled job/data records where they are no longer needed
+- [ ] deepen `Kernel.API` beyond the render entry surface
+- [x] rewrite View `to_decl()` boundaries to the same no-opaque-ctx purity rule
 
 ---
 
@@ -106,6 +110,10 @@ These are already present and should stay green while deeper work lands.
 - [x] Resolved → Classified binding/literal classification works for static values
 - [x] Classified → Scheduled scheduling works for basic node/track execution
 - [x] Scheduled → Kernel compilation produces callable Terra render functions
+- [x] Public phase boundaries are pure/no-opaque-ctx through `View → TerraUI` and `Scheduled → Kernel`
+- [x] ASDL surface now models reusable late-phase slices/programs (`TrackSlice`, `GraphSlice`, `TrackProgram`, `GraphProgram`, `Kernel.Unit`)
+- [x] Core compiler pipeline implementations now match the redesigned slice/program/unit ASDL surface
+- [x] View `to_decl()` boundaries now follow the same no-opaque-ctx rule
 - [x] First audible output works (`tests/first_sound.t`)
 - [x] SDL audio demo plays compiled output (`app/demo_audio.t`)
 - [x] Basic session compile / play / undo / redo loop exists (`app/session.t`)
@@ -198,7 +206,7 @@ Target file: `impl/scheduled/binding.t`
 - [x] Implement `rate_class = event`
 - [x] Implement `rate_class = voice`
 - [x] Stop returning hardcoded `0.0f` for all non-literal bindings
-- [x] Add per-rate-class tests for `Scheduled.Binding:compile_value()`
+- [x] Add per-rate-class tests for scheduled binding value lowering helpers
 
 ### 3.2 Runtime state / control storage
 
@@ -241,8 +249,8 @@ Target file: `impl/scheduled/mod_job.t`
 - [ ] Allocate/use real modulator output state slots
 - [ ] Evaluate modulator outputs at the correct rate
 - [ ] Distinguish global modulation from per-voice modulation
-- [ ] Stop treating modulation as constant-only behavior
-- [ ] Add tests for time-varying modulation output
+- [x] Stop treating modulation as constant-only behavior
+- [x] Add tests for time-varying modulation output
 
 ### 4.2 Mod routes applied to params
 
@@ -260,7 +268,7 @@ Target files:
 
 ### 4.3 First-class modulators
 
-- [ ] Make LFO modulation audible on a target param
+- [x] Make LFO modulation audible on a target param
 - [ ] Make ADSR-style modulation affect a target param over time
 - [ ] Add regression tests for per-block and per-sample modulation correctness
 

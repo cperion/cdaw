@@ -110,7 +110,7 @@ module Editor {
         Authored.AssetBank  assets
     ) unique
     methods {
-        lower(LowerCtx ctx) -> Authored.Project
+        lower() -> Authored.Project
     }
 
     Transport = (
@@ -122,7 +122,7 @@ module Editor {
         Editor.TimeRange? loop_range
     )
     methods {
-        lower(LowerCtx ctx) -> Authored.Transport
+        lower() -> Authored.Transport
     }
 
     TimeRange = (number start_beats, number end_beats)
@@ -136,7 +136,7 @@ module Editor {
         Editor.SigPoint*   signatures
     )
     methods {
-        lower(LowerCtx ctx) -> Authored.TempoMap
+        lower() -> Authored.TempoMap
     }
 
     TempoPoint = (number at_beats, number bpm)
@@ -205,7 +205,7 @@ module Editor {
         Editor.UserMeta?     meta
     )
     methods {
-        lower(LowerCtx ctx) -> Authored.Track
+        lower() -> Authored.Track
     }
 
     -- TrackKind is primarily an editor-level/user-facing classification.
@@ -235,7 +235,7 @@ module Editor {
     --   • insertion/removal/reordering commands operate here, not in Authored
     DeviceChain = (Editor.Device* devices)
     methods {
-        lower(LowerCtx ctx) -> Authored.Graph
+        lower() -> Authored.Graph
     }
 
     -- Devices are the primary user-visible authoring atoms.
@@ -254,7 +254,7 @@ module Editor {
         | SplitDevice(Editor.SplitContainer body)
         | GridDevice(Editor.GridContainer body)
     methods {
-        lower(LowerCtx ctx) -> Authored.Node
+        lower() -> Authored.Node
     }
 
     -- NativeDeviceBody is the ordinary device-panel payload carried by the
@@ -464,7 +464,7 @@ module Editor {
         Editor.GridDomain    domain
     )
     methods {
-        lower(LowerCtx ctx) -> Authored.Graph
+        lower() -> Authored.Graph
     }
 
     GridDomain = NoteDomain | AudioDomain | HybridDomain | ControlDomain
@@ -542,7 +542,7 @@ module Editor {
         boolean                enabled
     )
     methods {
-        lower(LowerCtx ctx) -> Authored.ModSlot
+        lower() -> Authored.ModSlot
     }
 
     ModulationMap = (
@@ -571,7 +571,7 @@ module Editor {
         Editor.Smoothing      smoothing
     )
     methods {
-        lower(LowerCtx ctx) -> Authored.Param
+        lower() -> Authored.Param
     }
 
     ParamSource
@@ -611,7 +611,7 @@ module Editor {
         Editor.UserMeta?   meta
     )
     methods {
-        lower(LowerCtx ctx) -> Authored.Clip
+        lower() -> Authored.Clip
     }
 
     ClipContent
@@ -634,7 +634,7 @@ module Editor {
         Editor.NoteExprLane*  expr_lanes
     )
     methods {
-        lower(LowerCtx ctx) -> Authored.NoteAsset
+        lower() -> Authored.NoteAsset
     }
 
     -- One semantic piano-roll note block.
@@ -685,7 +685,7 @@ module Editor {
         boolean                enabled
     )
     methods {
-        lower(LowerCtx ctx) -> Authored.Slot
+        lower() -> Authored.Slot
     }
 
     SlotContent
@@ -719,7 +719,7 @@ module Editor {
         number? tempo_override
     )
     methods {
-        lower(LowerCtx ctx) -> Authored.Scene
+        lower() -> Authored.Scene
     }
 
     SceneSlot = (number track_id, number slot_index, boolean stop_others)
@@ -738,6 +738,6 @@ module Editor {
         boolean           enabled
     )
     methods {
-        lower(LowerCtx ctx) -> Authored.Send
+        lower() -> Authored.Send
     }
 }

@@ -112,7 +112,7 @@ Authored.Project:resolve(...)      -> Resolved.Project
 Resolved.Project:classify(...)     -> Classified.Project
 Classified.Project:schedule(...)   -> Scheduled.Project
 Scheduled.Project:compile(...)     -> Kernel.Project
-View.Root:to_decl(ViewCtx)         -> TerraUIDecl
+View.Root:to_decl()                -> TerraUIDecl
 ```
 
 ## Build & Run

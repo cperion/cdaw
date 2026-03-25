@@ -13,13 +13,14 @@ local B = require("impl/view/components/button")
 local P = require("impl/view/components/placeholder_panel")
 local section = require("impl/view/browser/section")
 
-function V.BrowserView:to_decl(ctx)
+local M = {}
+
+local function lower(self, ctx)
     return diag.wrap(ctx, "view.browser_view.to_decl", "real", function()
         local ui = ctx.ui
         local p = C.palette(ctx)
         local scope = C.make_scope(ctx, self.identity, "browser")
 
-        -- Source tabs (e.g. "Everything")
         local source_children = {}
         for i = 1, #self.sources do
             local src = self.sources[i]
@@ -41,7 +42,6 @@ function V.BrowserView:to_decl(ctx)
             }))
         end
 
-        -- Content sections
         local section_children = {}
         for i = 1, #self.sections do
             C.push(section_children, section.lower(self.sections[i], ctx, scope, i))
@@ -49,7 +49,6 @@ function V.BrowserView:to_decl(ctx)
 
         local children = {
             T.section_title(ctx, "EVERYTHING", scope:child("title")),
-            -- Search field
             ui.label {
                 key = scope:child("query"),
                 width = ui.grow(),
@@ -61,14 +60,12 @@ function V.BrowserView:to_decl(ctx)
                 text_color = p.text_muted,
                 font_size = 11,
             },
-            -- Source selector
             ui.column {
                 key = scope:child("sources"),
                 width = ui.grow(),
                 height = ui.fit(),
                 gap = 2,
             } (source_children),
-            -- Scrollable content
             ui.scroll_region {
                 key = scope:child("sections"),
                 width = ui.grow(),
@@ -92,4 +89,14 @@ function V.BrowserView:to_decl(ctx)
     end)
 end
 
-return true
+local to_decl_impl = terralib.memoize(function(self)
+    return lower(self, C.new_view_ctx())
+end)
+
+M.lower = lower
+
+function V.BrowserView:to_decl()
+    return to_decl_impl(self)
+end
+
+return M

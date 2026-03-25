@@ -12,7 +12,9 @@ local B = require("impl/view/components/button")
 local P = require("impl/view/components/placeholder_panel")
 local entry = require("impl/view/device_chain/entry")
 
-function V.DeviceChainView:to_decl(ctx)
+local M = {}
+
+local function lower(self, ctx)
     return diag.wrap(ctx, "view.device_chain_view.to_decl", "real", function()
         local ui = ctx.ui
         local p = C.palette(ctx)
@@ -74,4 +76,14 @@ function V.DeviceChainView:to_decl(ctx)
     end)
 end
 
-return true
+local to_decl_impl = terralib.memoize(function(self)
+    return lower(self, C.new_view_ctx())
+end)
+
+M.lower = lower
+
+function V.DeviceChainView:to_decl()
+    return to_decl_impl(self)
+end
+
+return M

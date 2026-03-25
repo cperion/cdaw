@@ -1,24 +1,16 @@
--- impl/scheduled/node_job.t
--- Scheduled.NodeJob:compile → TerraQuote
---
--- Emits DSP code for a single node job. The ctx must provide:
---   ctx.bufs_sym       — Terra symbol for the buffer array
---   ctx.frames_sym     — Terra symbol for frame count
---   ctx.BS             — buffer size (Lua number, for offset calc)
---   ctx.literal_values — Lua table of literal float values
---   ctx.param_bindings — Lua table of Scheduled.Binding
---
--- Fallback: silence for generators, passthrough for effects.
+-- impl/scheduled/compiler/node_job.t
+-- Private scheduled node-job quote compiler.
 
 local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
+local compile_binding_value = require("impl/scheduled/compiler/binding")
 local L = F.L
 diag.status("scheduled.node_job.compile", "real")
+diag.variant_family("scheduled.node_job.compile", "Authored", "NodeKind")
 
 local C = terralib.includec("math.h")
 
--- Kind codes
 local NK = {
     BasicSynth=0, GainNode=5, PanNode=6, EQNode=7, CompressorNode=8,
     GateNode=9, DelayNode=10, ReverbNode=11, ChorusNode=12,
@@ -27,21 +19,76 @@ local NK = {
     ClampN=69, InvertN=90, AttenuateN=86,
 }
 
-local function resolve_binding_value(binding, literal_values)
-    if binding and binding.rate_class == 0 then
-        return literal_values[binding.slot + 1] or 0.0
+for member in pairs(D.Authored.NodeKind.members) do
+    if type(member) == "table" and member ~= D.Authored.NodeKind then
+        local name = rawget(member, "kind")
+        if type(name) == "string" then
+            diag.variant_status("scheduled.node_job.compile", name, "stub")
+        end
     end
-    return 0.0
 end
 
-local function get_param(param_bindings, literal_values, first_param, index)
-    local pb = param_bindings[first_param + index + 1]
-    if pb then return resolve_binding_value(pb, literal_values) end
-    return 0.0
+local implemented_variant_status = {
+    GainNode = "real",
+    NegN = "real",
+    AbsN = "real",
+    ClampN = "real",
+    AttenuateN = "real",
+    InvertN = "real",
+
+    PanNode = "partial",
+    EQNode = "partial",
+    CompressorNode = "partial",
+    GateNode = "partial",
+    SaturatorNode = "partial",
+    Clipper = "partial",
+    Wavefolder = "partial",
+    SineOsc = "partial",
+    SawOsc = "partial",
+    SquareOsc = "partial",
+}
+for name, status in pairs(implemented_variant_status) do
+    diag.variant_status("scheduled.node_job.compile", name, status)
 end
 
+local function get_param_binding(param_bindings, first_param, index)
+    return param_bindings[first_param + index + 1]
+end
 
-function D.Scheduled.NodeJob:compile(ctx)
+local function build_param_value(ctx, first_param, index)
+    local pb = get_param_binding(ctx.param_bindings or {}, first_param, index)
+    local expr = pb and compile_binding_value(pb, ctx) or `0.0f
+
+    local pm = ctx.param_meta and ctx.param_meta[first_param + index + 1]
+    local mod_routes = ctx.mod_routes or {}
+    local mod_slot_by_index = ctx.mod_slot_by_index or {}
+    if not pm or (pm.modulation_count or 0) <= 0 then
+        return expr
+    end
+
+    for ri = 0, pm.modulation_count - 1 do
+        local mr = mod_routes[pm.first_modulation + ri + 1]
+        if mr then
+            local ms = mod_slot_by_index[mr.mod_slot_index]
+            local out_binding = ms and ms.output_binding or nil
+            if out_binding then
+                local mod_q = compile_binding_value(out_binding, ctx)
+                local depth_q = mr.depth and compile_binding_value(mr.depth, ctx) or `0.0f
+                local route_q
+                if mr.bipolar then
+                    route_q = `([mod_q] * [depth_q])
+                else
+                    route_q = `(((( [mod_q] + 1.0f) * 0.5f)) * [depth_q])
+                end
+                expr = `([expr] + [route_q])
+            end
+        end
+    end
+
+    return expr
+end
+
+local function compile_with(self, ctx)
     return diag.wrap(ctx, "scheduled.node_job.compile", "real", function()
         assert(ctx and ctx.bufs_sym, "NodeJob:compile requires ctx.bufs_sym")
         assert(ctx and ctx.frames_sym, "NodeJob:compile requires ctx.frames_sym")
@@ -49,42 +96,48 @@ function D.Scheduled.NodeJob:compile(ctx)
         local bufs = ctx.bufs_sym
         local frames = ctx.frames_sym
         local BS = ctx.BS
-        local literal_values = ctx.literal_values or {}
-        local param_bindings = ctx.param_bindings or {}
+        local sample_rate = ctx.sample_rate or 44100.0
 
         local ioff = self.in_buf * BS
         local ooff = self.out_buf * BS
         local kc = self.kind_code
 
         local function P(index)
-            return get_param(param_bindings, literal_values, self.first_param, index)
+            return build_param_value(ctx, self.first_param, index)
         end
 
         if kc == NK.GainNode then
             local g = P(0)
             return quote
                 var io = [int32](ioff); var oo = [int32](ooff)
-                for i = 0, frames do bufs[oo+i] = bufs[io+i] * [float](g) end
+                var gain : float = [g]
+                for i = 0, frames do bufs[oo+i] = bufs[io+i] * gain end
             end
 
         elseif kc == NK.PanNode then
-            local pg = math.cos(P(0) * math.pi / 4.0)
+            local pan_q = P(0)
             return quote
                 var io = [int32](ioff); var oo = [int32](ooff)
-                for i = 0, frames do bufs[oo+i] = bufs[io+i] * [float](pg) end
+                var pan : float = [pan_q]
+                var pg : float = C.cosf(pan * [float](math.pi / 4.0))
+                for i = 0, frames do bufs[oo+i] = bufs[io+i] * pg end
             end
 
         elseif kc == NK.CompressorNode then
-            local thr = math.pow(10.0, P(0) / 20.0)
-            local ratio = math.max(P(1), 1.0)
-            local inv_r = 1.0 / ratio
+            local thr_q = P(0)
+            local ratio_q = P(1)
             return quote
                 var io = [int32](ioff); var oo = [int32](ooff)
+                var thr_db : float = [thr_q]
+                var ratio : float = [ratio_q]
+                if ratio < 1.0f then ratio = 1.0f end
+                var thr : float = C.powf(10.0f, thr_db / 20.0f)
+                var inv_r : float = 1.0f / ratio
                 for i = 0, frames do
                     var x = bufs[io+i]
                     var ax = x; if ax < 0.0f then ax = -ax end
-                    if ax > [float](thr) then
-                        var compressed = [float](thr) + (ax - [float](thr)) * [float](inv_r)
+                    if ax > thr then
+                        var compressed = thr + (ax - thr) * inv_r
                         if x >= 0.0f then bufs[oo+i] = compressed
                         else bufs[oo+i] = -compressed end
                     else bufs[oo+i] = x end
@@ -92,29 +145,35 @@ function D.Scheduled.NodeJob:compile(ctx)
             end
 
         elseif kc == NK.SaturatorNode then
-            local drv = math.max(P(0), 0.1)
+            local drv_q = P(0)
             return quote
                 var io = [int32](ioff); var oo = [int32](ooff)
+                var drv : float = [drv_q]
+                if drv < 0.1f then drv = 0.1f end
                 for i = 0, frames do
-                    bufs[oo+i] = C.tanhf(bufs[io+i] * [float](drv))
+                    bufs[oo+i] = C.tanhf(bufs[io+i] * drv)
                 end
             end
 
         elseif kc == NK.EQNode then
-            local glin = math.pow(10.0, P(1) / 20.0)
+            local gain_db_q = P(1)
             return quote
                 var io = [int32](ioff); var oo = [int32](ooff)
-                for i = 0, frames do bufs[oo+i] = bufs[io+i] * [float](glin) end
+                var gain_db : float = [gain_db_q]
+                var glin : float = C.powf(10.0f, gain_db / 20.0f)
+                for i = 0, frames do bufs[oo+i] = bufs[io+i] * glin end
             end
 
         elseif kc == NK.GateNode then
-            local thr = math.pow(10.0, P(0) / 20.0)
+            local thr_q = P(0)
             return quote
                 var io = [int32](ioff); var oo = [int32](ooff)
+                var thr_db : float = [thr_q]
+                var thr : float = C.powf(10.0f, thr_db / 20.0f)
                 for i = 0, frames do
                     var x = bufs[io+i]
                     var ax = x; if ax < 0.0f then ax = -ax end
-                    if ax >= [float](thr) then bufs[oo+i] = x
+                    if ax >= thr then bufs[oo+i] = x
                     else bufs[oo+i] = 0.0f end
                 end
             end
@@ -177,38 +236,45 @@ function D.Scheduled.NodeJob:compile(ctx)
             local att = P(0)
             return quote
                 var io = [int32](ioff); var oo = [int32](ooff)
-                for i = 0, frames do bufs[oo+i] = bufs[io+i] * [float](att) end
+                var a : float = [att]
+                for i = 0, frames do bufs[oo+i] = bufs[io+i] * a end
             end
 
         elseif kc == NK.SineOsc then
-            local freq = math.max(P(0), 1.0)
-            local pinc = freq * 2.0 * math.pi / 44100.0
+            local freq_q = P(0)
             return quote
                 var oo = [int32](ooff)
+                var freq : float = [freq_q]
+                if freq < 1.0f then freq = 1.0f end
+                var pinc : float = freq * [float](2.0 * math.pi / sample_rate)
                 for i = 0, frames do
-                    bufs[oo+i] = C.sinf([float](pinc) * [float](i))
+                    bufs[oo+i] = C.sinf(pinc * [float](i))
                 end
             end
 
         elseif kc == NK.SawOsc then
-            local freq = math.max(P(0), 1.0)
-            local inc = freq * 2.0 / 44100.0
+            local freq_q = P(0)
             return quote
                 var oo = [int32](ooff)
+                var freq : float = [freq_q]
+                if freq < 1.0f then freq = 1.0f end
+                var inc : float = freq * [float](2.0 / sample_rate)
                 for i = 0, frames do
-                    var ph = [float](inc) * [float](i)
+                    var ph = inc * [float](i)
                     ph = ph - 2.0f * C.floorf(ph * 0.5f)
                     bufs[oo+i] = ph - 1.0f
                 end
             end
 
         elseif kc == NK.SquareOsc then
-            local freq = math.max(P(0), 1.0)
-            local inc = freq / 44100.0
+            local freq_q = P(0)
             return quote
                 var oo = [int32](ooff)
+                var freq : float = [freq_q]
+                if freq < 1.0f then freq = 1.0f end
+                var inc : float = freq / [float](sample_rate)
                 for i = 0, frames do
-                    var ph = [float](inc) * [float](i)
+                    var ph = inc * [float](i)
                     ph = ph - C.floorf(ph)
                     if ph < 0.5f then bufs[oo+i] = 1.0f
                     else bufs[oo+i] = -1.0f end
@@ -216,7 +282,6 @@ function D.Scheduled.NodeJob:compile(ctx)
             end
 
         else
-            -- Default: passthrough (copy input to output if different buffers)
             if ioff ~= ooff then
                 return quote
                     var io = [int32](ioff); var oo = [int32](ooff)
@@ -231,4 +296,4 @@ function D.Scheduled.NodeJob:compile(ctx)
     end)
 end
 
-return true
+return compile_with

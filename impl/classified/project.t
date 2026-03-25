@@ -1,399 +1,429 @@
 -- impl/classified/project.t
--- Classified.Project:schedule → Scheduled.Project
---
--- The schedule phase allocates buffer indices, builds per-track steps,
--- and wires node jobs into an execution plan. It also carries the
--- literal table through for Kernel compilation.
+-- Classified.GraphSlice:schedule -> Scheduled.GraphProgram
+-- Classified.TrackSlice:schedule -> Scheduled.TrackProgram
+-- Classified.Project:schedule -> Scheduled.Project
 
 local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local L = F.L
+
+diag.status("classified.graph_slice.schedule", "real")
+diag.status("classified.track_slice.schedule", "real")
 diag.status("classified.project.schedule", "real")
 
-
-local function make_schedule_ctx(caller_ctx, classified)
-    local ctx = caller_ctx or {}
-    ctx.diagnostics = ctx.diagnostics or {}
-
-    -- Buffer allocator: each buffer is a mono float array of buffer_size
-    local next_buf = 0
-    ctx._buffers = {}
-    ctx.alloc_buffer = function(self, channels, persistent)
-        local idx = next_buf
-        next_buf = next_buf + 1
-        ctx._buffers[idx + 1] = D.Scheduled.Buffer(idx, channels or 1, false, persistent or false)
-        return idx
+local function make_state(literals_owner)
+    local st = {
+        next_buf = 0,
+        buffers = {},
+        literals = {},
+        literal_map = {},
+    }
+    local literals = literals_owner or nil
+    if literals and literals.literals then literals = literals.literals end
+    if literals then
+        for i = 1, #literals do
+            st.literals[i] = literals[i]
+            st.literal_map[literals[i].value] = i - 1
+        end
     end
-
-    -- Carry through the literal table from classify, but allow schedule-time
-    -- helpers to add a small number of structural literals (e.g. unity gain).
-    ctx.literals = {}
-    ctx._literal_map = {}
-    for i = 1, #classified.literals do
-        ctx.literals[i] = classified.literals[i]
-        ctx._literal_map[classified.literals[i].value] = i - 1
-    end
-    ctx.ensure_literal = function(self, value)
-        local existing = ctx._literal_map[value]
-        if existing ~= nil then return existing end
-        local slot = #ctx.literals
-        ctx.literals[slot + 1] = D.Classified.Literal(value)
-        ctx._literal_map[value] = slot
-        return slot
-    end
-
-    return ctx, next_buf
+    return st
 end
 
+local function alloc_buffer(st, channels, persistent)
+    local idx = st.next_buf
+    st.next_buf = idx + 1
+    st.buffers[idx + 1] = D.Scheduled.Buffer(idx, channels or 1, false, persistent or false)
+    return idx
+end
 
-function D.Classified.Project:schedule(caller_ctx)
-    return diag.wrap(caller_ctx, "classified.project.schedule", "real", function()
-        local ctx = make_schedule_ctx(caller_ctx, self)
+local function ensure_literal(st, value)
+    local existing = st.literal_map[value]
+    if existing ~= nil then return existing end
+    local slot = #st.literals
+    st.literals[slot + 1] = D.Classified.Literal(value)
+    st.literal_map[value] = slot
+    return slot
+end
 
-        local transport = self.transport:schedule(ctx)
-        local tempo_map = self.tempo_map:schedule(ctx)
+local function to_list(tbl)
+    local l = L()
+    for i = 1, #tbl do l:insert(tbl[i]) end
+    return l
+end
 
-        local transport_unity_slot = ctx:ensure_literal(1.0)
-        local unity_binding = D.Scheduled.Binding(0, transport_unity_slot)
+local function schedule_graph_plan(graph, first_node_job, node_job_count, in_buf, out_buf)
+    return D.Scheduled.GraphPlan(
+        graph.id,
+        first_node_job,
+        node_job_count,
+        in_buf,
+        out_buf,
+        graph.first_feedback or 0,
+        graph.feedback_count or 0
+    )
+end
 
-        -- Allocate master output buffers
-        local master_left = ctx:alloc_buffer(1, true)
-        local master_right = ctx:alloc_buffer(1, true)
-        ctx._master_left = master_left
-        ctx._master_right = master_right
+local function schedule_node_job(node, in_buf, out_buf)
+    return D.Scheduled.NodeJob(
+        node.id,
+        node.node_kind_code,
+        in_buf,
+        out_buf,
+        node.first_param,
+        node.param_count,
+        node.runtime_state_slot,
+        node.state_size,
+        node.arg0, node.arg1, node.arg2, node.arg3
+    )
+end
 
-        -- Prebuild lookups and per-track buffers.
-        local graph_by_id = {}
-        for i = 1, #self.graphs do graph_by_id[self.graphs[i].id] = self.graphs[i] end
-
-        local node_by_id = {}
-        for i = 1, #self.nodes do node_by_id[self.nodes[i].id] = self.nodes[i] end
-
-        local work_buf_by_track = {}
-        local mix_in_buf_by_track = {}
-        ctx._track_work_buf = {}
-        for i = 1, #self.tracks do
-            local ct = self.tracks[i]
-            local work_buf = ctx:alloc_buffer(1, false)
-            local mix_in_buf = ctx:alloc_buffer(1, false)
-            work_buf_by_track[ct.id] = work_buf
-            mix_in_buf_by_track[ct.id] = mix_in_buf
-            ctx._track_work_buf[ct.id] = work_buf
-        end
-
-        local tracks = L()
-        local steps = L()
-        local graph_plans = L()
-        local node_jobs = L()
-        local clip_jobs = L()
-        local mod_jobs = L()
-        local send_jobs = L()
-        local mix_jobs = L()
-        local output_jobs = L()
-
-        ctx._graph_first_job = {}
-        ctx._graph_job_count = {}
-        ctx._graph_in_buf = {}
-        ctx._graph_out_buf = {}
-        ctx._node_in_buf = {}
-        ctx._node_out_buf = {}
-
-        local function add_step(clear_buf, clip_job, node_job, mod_job, send_job, mix_job, output_job)
-            steps:insert(D.Scheduled.Step(
-                #steps,
-                clear_buf,
-                clip_job or -1,
-                node_job or -1,
-                mod_job or -1,
-                send_job or -1,
-                mix_job or -1,
-                output_job or -1
-            ))
-        end
-
-        local function append_extra_steps(job_indices, field)
-            for i = 2, #job_indices do
-                if field == "clip" then
-                    add_step(-1, job_indices[i], -1, -1, -1, -1, -1)
-                elseif field == "mod" then
-                    add_step(-1, -1, -1, job_indices[i], -1, -1, -1)
-                elseif field == "send" then
-                    add_step(-1, -1, -1, -1, job_indices[i], -1, -1)
-                elseif field == "mix" then
-                    add_step(-1, -1, -1, -1, -1, job_indices[i], -1)
-                elseif field == "output" then
-                    add_step(-1, -1, -1, -1, -1, -1, job_indices[i])
-                end
-            end
-        end
-
-        for i = 1, #self.tracks do
-            local ct = self.tracks[i]
-            local work_buf = work_buf_by_track[ct.id]
-            local mix_in_buf = mix_in_buf_by_track[ct.id]
-            local vol = ct.volume:schedule(ctx)
-            local pan = ct.pan:schedule(ctx)
-            local graph = graph_by_id[ct.device_graph_id]
-            local node_ids_in_graph = {}
-
-            -- Graph/node scheduling for the track's device graph.
-            local track_first_node_job = #node_jobs
-            local track_node_count = 0
-            if graph then
-                ctx._graph_in_buf[graph.id] = work_buf
-                ctx._graph_out_buf[graph.id] = work_buf
-                ctx._graph_first_job[graph.id] = track_first_node_job
-                for j = 1, #graph.node_ids do
-                    local nid = graph.node_ids[j]
-                    node_ids_in_graph[nid] = true
-                    local cn = node_by_id[nid]
-                    if cn then
-                        ctx._node_in_buf[nid] = work_buf
-                        ctx._node_out_buf[nid] = work_buf
-                        node_jobs:insert(cn:schedule(ctx))
-                        track_node_count = track_node_count + 1
-                    end
-                end
-                ctx._graph_job_count[graph.id] = track_node_count
-                graph_plans:insert(graph:schedule(ctx))
-            end
-
-            -- Track-local clip jobs.
-            local clip_job_indices = {}
-            for j = 0, ct.clip_count - 1 do
-                local clip = self.clips[ct.first_clip + j + 1]
-                if clip and not clip.muted then
-                    local gain = clip.gain:schedule(ctx)
-                    clip_jobs:insert(D.Scheduled.ClipJob(
-                        clip.id,
-                        clip.content_kind,
-                        clip.asset_id,
-                        work_buf,
-                        clip.start_tick,
-                        clip.end_tick,
-                        clip.source_offset_tick,
-                        gain,
-                        false,
-                        clip.fade_in_tick,
-                        clip.fade_in_curve_code,
-                        clip.fade_out_tick,
-                        clip.fade_out_curve_code
-                    ))
-                    clip_job_indices[#clip_job_indices + 1] = #clip_jobs - 1
-                end
-            end
-
-            -- Track-local mod jobs for nodes that belong to this graph.
-            local mod_job_indices = {}
-            for j = 1, #self.mod_slots do
-                local ms = self.mod_slots[j]
-                if node_ids_in_graph[ms.parent_node_id] then
-                    mod_jobs:insert(D.Scheduled.ModJob(
-                        ms.modulator_node_id,
-                        ms.parent_node_id,
-                        ms.per_voice,
-                        ms.first_route,
-                        ms.route_count,
-                        ms.output_binding.slot,
-                        ms.output_binding:schedule(ctx)
-                    ))
-                    mod_job_indices[#mod_job_indices + 1] = #mod_jobs - 1
-                end
-            end
-
-            -- Send jobs write into the target track's mix-in buffer.
-            local send_job_indices = {}
-            for j = 0, ct.send_count - 1 do
-                local send = self.sends[ct.first_send + j + 1]
-                if send then
-                    local target_mix_in = mix_in_buf_by_track[send.target_track_id]
-                    if target_mix_in then
-                        send_jobs:insert(D.Scheduled.SendJob(
-                            work_buf,
-                            target_mix_in,
-                            send.level:schedule(ctx),
-                            send.pre_fader,
-                            send.enabled
-                        ))
-                        send_job_indices[#send_job_indices + 1] = #send_jobs - 1
-                    end
-                end
-            end
-
-            -- If this track receives sends, fold them into its work buffer.
-            local mix_job_indices = {}
-            mix_jobs:insert(D.Scheduled.MixJob(mix_in_buf, work_buf, unity_binding))
-            mix_job_indices[#mix_job_indices + 1] = #mix_jobs - 1
-
-            -- Final output for the track goes through an explicit OutputJob.
-            local output_job_indices = {}
-            output_jobs:insert(D.Scheduled.OutputJob(
-                work_buf,
-                master_left,
-                master_right,
-                vol,
-                pan
-            ))
-            output_job_indices[#output_job_indices + 1] = #output_jobs - 1
-
-            local first_step = #steps
-            add_step(
-                -1,
-                clip_job_indices[1] or -1,
-                track_node_count > 0 and track_first_node_job or -1,
-                mod_job_indices[1] or -1,
-                send_job_indices[1] or -1,
-                mix_job_indices[1] or -1,
-                output_job_indices[1] or -1
-            )
-            append_extra_steps(clip_job_indices, "clip")
-            append_extra_steps(mod_job_indices, "mod")
-            append_extra_steps(send_job_indices, "send")
-            append_extra_steps(mix_job_indices, "mix")
-            append_extra_steps(output_job_indices, "output")
-            local step_count = #steps - first_step
-
-            tracks:insert(D.Scheduled.TrackPlan(
-                ct.id,
-                vol, pan,
-                ct.input_kind_code, ct.input_arg0, ct.input_arg1,
-                first_step, step_count,
-                work_buf, -1, mix_in_buf,
-                master_left, master_right,
-                false
-            ))
-        end
-
-        -- Scene entries
-        local scene_entries = L()
-        for i = 1, #self.scenes do
-            local s = self.scenes[i]
-            scene_entries:insert(D.Scheduled.SceneEntry(
-                s.id, 0, 0, s.quant_code, s.tempo_override
-            ))
-        end
-
-        -- Param bindings
-        local param_bindings = L()
-        for i = 1, #self.params do
-            param_bindings:insert(self.params[i].base_value:schedule(ctx))
-        end
-
-        -- Convert classified ops (pass through)
-        local init_ops = L()
-        for i = 1, #self.init_ops do
-            local op = self.init_ops[i]
-            init_ops:insert(D.Scheduled.InitOp(
-                op.kind, op.arg0, op.arg1,
-                op.i0:schedule(ctx),
-                op.i1 and op.i1:schedule(ctx) or nil,
-                op.state_slot
-            ))
-        end
-        local block_ops = L()
-        for i = 1, #self.block_ops do
-            local op = self.block_ops[i]
-            block_ops:insert(D.Scheduled.BlockOp(
-                op.kind, op.first_pt, op.pt_count, op.interp, op.arg0,
-                op.i0:schedule(ctx),
-                op.i1 and op.i1:schedule(ctx) or nil
-            ))
-        end
-        local block_pts = L()
-        for i = 1, #self.block_pts do
-            block_pts:insert(D.Scheduled.BlockPt(self.block_pts[i].tick, self.block_pts[i].value))
-        end
-        local sample_ops = L()
-        for i = 1, #self.sample_ops do
-            local op = self.sample_ops[i]
-            sample_ops:insert(D.Scheduled.SampleOp(
-                op.kind, op.i0:schedule(ctx),
-                op.i1 and op.i1:schedule(ctx) or nil,
-                op.arg0, op.arg1, op.arg2, op.state_slot
-            ))
-        end
-        local event_ops = L()
-        for i = 1, #self.event_ops do
-            local op = self.event_ops[i]
-            event_ops:insert(D.Scheduled.EventOp(op.kind, op.event_code, op.min_v, op.max_v, op.state_slot))
-        end
-        local voice_ops = L()
-        for i = 1, #self.voice_ops do
-            local op = self.voice_ops[i]
-            voice_ops:insert(D.Scheduled.VoiceOp(
-                op.kind, op.i0:schedule(ctx),
-                op.i1 and op.i1:schedule(ctx) or nil,
-                op.arg0, op.arg1, op.arg2, op.state_slot
-            ))
-        end
-
-        local literals = L()
-        for i = 1, #ctx.literals do
-            literals:insert(D.Scheduled.Literal(ctx.literals[i].value))
-        end
-
-        local params = L()
-        for i = 1, #self.params do
-            local p = self.params[i]
-            params:insert(D.Scheduled.Param(
-                p.id, p.node_id,
-                p.default_value, p.min_value, p.max_value,
-                p.base_value:schedule(ctx),
-                p.combine_code,
-                p.smoothing_code, p.smoothing_ms,
-                p.first_modulation, p.modulation_count,
-                p.runtime_state_slot
-            ))
-        end
-
-        local mod_slots = L()
-        for i = 1, #self.mod_slots do
-            local ms = self.mod_slots[i]
-            mod_slots:insert(D.Scheduled.ModSlot(
-                ms.slot_index,
-                ms.parent_node_id,
-                ms.modulator_node_id,
-                ms.per_voice,
-                ms.first_route,
-                ms.route_count,
-                ms.output_binding:schedule(ctx)
-            ))
-        end
-
-        local mod_routes = L()
-        for i = 1, #self.mod_routes do
-            local mr = self.mod_routes[i]
-            mod_routes:insert(D.Scheduled.ModRoute(
-                mr.mod_slot_index,
-                mr.target_param_id,
-                mr.depth:schedule(ctx),
-                mr.bipolar,
-                mr.scale_binding_slot
-            ))
-        end
-
-        -- Build buffer list
-        local buffers = L()
-        for i = 1, #ctx._buffers do buffers:insert(ctx._buffers[i]) end
-
-        -- Propagate diagnostics
-        if caller_ctx then caller_ctx.diagnostics = ctx.diagnostics end
-
-        return D.Scheduled.Project(
-            transport, tempo_map,
-            buffers, tracks, steps,
-            graph_plans, node_jobs,
-            send_jobs, mix_jobs, output_jobs, clip_jobs, mod_jobs,
-            L(), scene_entries,
-            literals, params, mod_slots, mod_routes,
-            param_bindings,
-            init_ops, block_ops, block_pts,
-            sample_ops, event_ops, voice_ops,
-            #ctx._buffers,
-            self.total_state_slots,
-            master_left, master_right
+local function schedule_param_list(params)
+    local out = L()
+    for i = 1, #params do
+        local p = params[i]
+        out[i] = D.Scheduled.Param(
+            p.id, p.node_id,
+            p.default_value, p.min_value, p.max_value,
+            p.base_value:schedule(),
+            p.combine_code,
+            p.smoothing_code, p.smoothing_ms,
+            p.first_modulation, p.modulation_count,
+            p.runtime_state_slot
         )
+    end
+    return out
+end
+
+local function schedule_param_bindings(params)
+    local out = L()
+    for i = 1, #params do out[i] = params[i].base_value:schedule() end
+    return out
+end
+
+local function schedule_mod_slot_list(mod_slots)
+    local out = L()
+    for i = 1, #mod_slots do
+        local ms = mod_slots[i]
+        out[i] = D.Scheduled.ModSlot(
+            ms.slot_index,
+            ms.parent_node_id,
+            ms.modulator_node_id,
+            ms.modulator_kind_code,
+            ms.first_param,
+            ms.param_count,
+            ms.arg0, ms.arg1, ms.arg2, ms.arg3,
+            ms.per_voice,
+            ms.first_route,
+            ms.route_count,
+            ms.state_size,
+            ms.runtime_state_slot,
+            ms.output_binding:schedule()
+        )
+    end
+    return out
+end
+
+local function schedule_mod_route_list(mod_routes)
+    local out = L()
+    for i = 1, #mod_routes do
+        local mr = mod_routes[i]
+        out[i] = D.Scheduled.ModRoute(
+            mr.mod_slot_index,
+            mr.target_param_id,
+            mr.depth:schedule(),
+            mr.bipolar,
+            mr.scale_binding_slot
+        )
+    end
+    return out
+end
+
+local function schedule_literal_list(literals)
+    local out = L()
+    for i = 1, #literals do out[i] = D.Scheduled.Literal(literals[i].value) end
+    return out
+end
+
+local function schedule_init_ops(init_ops)
+    local out = L()
+    for i = 1, #init_ops do
+        local op = init_ops[i]
+        out[i] = D.Scheduled.InitOp(
+            op.kind, op.arg0, op.arg1,
+            op.i0:schedule(),
+            op.i1 and op.i1:schedule() or nil,
+            op.state_slot
+        )
+    end
+    return out
+end
+
+local function schedule_block_ops(block_ops)
+    local out = L()
+    for i = 1, #block_ops do
+        local op = block_ops[i]
+        out[i] = D.Scheduled.BlockOp(
+            op.kind, op.first_pt, op.pt_count, op.interp, op.arg0,
+            op.i0:schedule(),
+            op.i1 and op.i1:schedule() or nil
+        )
+    end
+    return out
+end
+
+local function schedule_block_pts(block_pts)
+    local out = L()
+    for i = 1, #block_pts do out[i] = D.Scheduled.BlockPt(block_pts[i].tick, block_pts[i].value) end
+    return out
+end
+
+local function schedule_sample_ops(sample_ops)
+    local out = L()
+    for i = 1, #sample_ops do
+        local op = sample_ops[i]
+        out[i] = D.Scheduled.SampleOp(
+            op.kind, op.i0:schedule(),
+            op.i1 and op.i1:schedule() or nil,
+            op.arg0, op.arg1, op.arg2, op.state_slot
+        )
+    end
+    return out
+end
+
+local function schedule_event_ops(event_ops)
+    local out = L()
+    for i = 1, #event_ops do
+        local op = event_ops[i]
+        out[i] = D.Scheduled.EventOp(op.kind, op.event_code, op.min_v, op.max_v, op.state_slot)
+    end
+    return out
+end
+
+local function schedule_voice_ops(voice_ops)
+    local out = L()
+    for i = 1, #voice_ops do
+        local op = voice_ops[i]
+        out[i] = D.Scheduled.VoiceOp(
+            op.kind, op.i0:schedule(),
+            op.i1 and op.i1:schedule() or nil,
+            op.arg0, op.arg1, op.arg2, op.state_slot
+        )
+    end
+    return out
+end
+
+local schedule_graph_program_impl = terralib.memoize(function(self, transport, tempo_map)
+    local st = make_state(self.literals)
+    local scheduled_transport = transport and transport:schedule() or F.scheduled_transport()
+    local scheduled_tempo_map = tempo_map and tempo_map:schedule() or F.scheduled_tempo_map()
+
+    local graph = self.graphs[1] or F.classified_graph(0)
+    local in_buf = alloc_buffer(st, 1, false)
+    local out_buf = alloc_buffer(st, 1, false)
+
+    local node_jobs = L()
+    local prev_out = in_buf
+    for i = 1, #self.nodes do
+        local node_in = prev_out
+        local node_out = (i == #self.nodes) and out_buf or alloc_buffer(st, 1, false)
+        node_jobs[i] = schedule_node_job(self.nodes[i], node_in, node_out)
+        prev_out = node_out
+    end
+
+    return D.Scheduled.GraphProgram(
+        scheduled_transport,
+        scheduled_tempo_map,
+        to_list(st.buffers),
+        schedule_graph_plan(graph, 0, #node_jobs, in_buf, out_buf),
+        node_jobs,
+        schedule_param_list(self.params),
+        schedule_mod_slot_list(self.mod_slots),
+        schedule_mod_route_list(self.mod_routes),
+        schedule_param_bindings(self.params),
+        schedule_literal_list(st.literals),
+        schedule_init_ops(self.init_ops),
+        schedule_block_ops(self.block_ops),
+        schedule_block_pts(self.block_pts),
+        schedule_sample_ops(self.sample_ops),
+        schedule_event_ops(self.event_ops),
+        schedule_voice_ops(self.voice_ops),
+        st.next_buf,
+        self.total_state_slots
+    )
+end)
+
+local schedule_track_program_impl = terralib.memoize(function(self, transport, tempo_map)
+    local st = make_state(self.mixer_literals)
+    local scheduled_transport = transport and transport:schedule() or F.scheduled_transport()
+    local scheduled_tempo_map = tempo_map and tempo_map:schedule() or F.scheduled_tempo_map()
+
+    local device_graph = self.device_graph:schedule(transport, tempo_map)
+
+    local unity_slot = ensure_literal(st, 1.0)
+    local unity_binding = D.Scheduled.Binding(0, unity_slot)
+
+    local work_buf = alloc_buffer(st, 1, false)
+    local mix_in_buf = alloc_buffer(st, 1, false)
+    local master_left = alloc_buffer(st, 1, true)
+    local master_right = alloc_buffer(st, 1, true)
+
+    local clip_jobs = L()
+    for i = 1, #self.clips do
+        local clip = self.clips[i]
+        if not clip.muted then
+            clip_jobs:insert(D.Scheduled.ClipJob(
+                clip.id,
+                clip.content_kind,
+                clip.asset_id,
+                work_buf,
+                clip.start_tick,
+                clip.end_tick,
+                clip.source_offset_tick,
+                clip.gain:schedule(),
+                false,
+                clip.fade_in_tick,
+                clip.fade_in_curve_code,
+                clip.fade_out_tick,
+                clip.fade_out_curve_code
+            ))
+        end
+    end
+
+    local send_jobs = L()
+    for i = 1, #self.sends do
+        local send = self.sends[i]
+        send_jobs:insert(D.Scheduled.SendJob(
+            work_buf,
+            mix_in_buf,
+            send.level:schedule(),
+            send.pre_fader,
+            send.enabled
+        ))
+    end
+
+    local mix_jobs = L{D.Scheduled.MixJob(mix_in_buf, work_buf, unity_binding)}
+    local output_jobs = L{D.Scheduled.OutputJob(
+        work_buf,
+        master_left,
+        master_right,
+        self.track.volume:schedule(),
+        self.track.pan:schedule()
+    )}
+
+    local steps = L()
+    steps:insert(D.Scheduled.Step(0, -1, (#clip_jobs > 0 and 0 or -1), (#device_graph.node_jobs > 0 and 0 or -1), -1, (#send_jobs > 0 and 0 or -1), 0, 0))
+    for i = 2, #clip_jobs do steps:insert(D.Scheduled.Step(#steps, -1, i - 1, -1, -1, -1, -1, -1)) end
+    for i = 2, #send_jobs do steps:insert(D.Scheduled.Step(#steps, -1, -1, -1, -1, i - 1, -1, -1)) end
+
+    local launch_entries = L()
+    for i = 1, #self.slots do
+        local slot = self.slots[i]
+        launch_entries[i] = D.Scheduled.LaunchEntry(
+            self.track.id,
+            slot.slot_index,
+            slot.slot_kind,
+            slot.clip_id,
+            slot.launch_mode_code,
+            slot.quant_code,
+            slot.legato,
+            slot.retrigger,
+            slot.follow_kind_code,
+            slot.follow_weight_a,
+            slot.follow_weight_b,
+            slot.follow_target_scene_id,
+            slot.enabled
+        )
+    end
+
+    return D.Scheduled.TrackProgram(
+        scheduled_transport,
+        scheduled_tempo_map,
+        to_list(st.buffers),
+        D.Scheduled.TrackPlan(
+            self.track.id,
+            self.track.volume:schedule(),
+            self.track.pan:schedule(),
+            self.track.input_kind_code,
+            self.track.input_arg0,
+            self.track.input_arg1,
+            0,
+            #steps,
+            work_buf,
+            -1,
+            mix_in_buf,
+            master_left,
+            master_right,
+            false
+        ),
+        steps,
+        device_graph,
+        send_jobs,
+        mix_jobs,
+        output_jobs,
+        clip_jobs,
+        L(),
+        launch_entries,
+        schedule_param_list(self.mixer_params),
+        schedule_param_bindings(self.mixer_params),
+        schedule_literal_list(st.literals),
+        schedule_init_ops(self.mixer_init_ops),
+        schedule_block_ops(self.mixer_block_ops),
+        schedule_block_pts(self.mixer_block_pts),
+        schedule_sample_ops(self.mixer_sample_ops),
+        schedule_event_ops(self.mixer_event_ops),
+        schedule_voice_ops(self.mixer_voice_ops),
+        st.next_buf,
+        self.device_graph.total_state_slots,
+        master_left,
+        master_right
+    )
+end)
+
+local schedule_project_impl = terralib.memoize(function(self)
+    local transport = self.transport:schedule()
+    local tempo_map = self.tempo_map:schedule()
+
+    local track_programs = diag.map_or(nil, "classified.project.schedule.track_slices",
+        self.track_slices,
+        function(ts)
+            return ts:schedule(self.transport, self.tempo_map)
+        end,
+        function(ts)
+            local id = ts and ts.track and ts.track.id or 0
+            return F.scheduled_track_program(id)
+        end)
+
+    local scene_entries = L()
+    for i = 1, #self.scenes do
+        local s = self.scenes[i]
+        scene_entries[i] = D.Scheduled.SceneEntry(s.id, s.first_slot, s.slot_count, s.quant_code, s.tempo_override)
+    end
+
+    return D.Scheduled.Project(transport, tempo_map, track_programs, scene_entries)
+end)
+
+function D.Classified.GraphSlice:schedule(transport, tempo_map)
+    return diag.wrap(nil, "classified.graph_slice.schedule", "real", function()
+        return schedule_graph_program_impl(self, transport, tempo_map)
+    end, function()
+        local id = (#self.graphs > 0 and self.graphs[1].id) or 0
+        return F.scheduled_graph_program(id)
+    end)
+end
+
+function D.Classified.TrackSlice:schedule(transport, tempo_map)
+    return diag.wrap(nil, "classified.track_slice.schedule", "real", function()
+        return schedule_track_program_impl(self, transport, tempo_map)
+    end, function()
+        local id = self.track and self.track.id or 0
+        return F.scheduled_track_program(id)
+    end)
+end
+
+function D.Classified.Project:schedule()
+    return diag.wrap(nil, "classified.project.schedule", "real", function()
+        return schedule_project_impl(self)
     end, function()
         return F.scheduled_project()
     end)

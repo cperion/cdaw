@@ -79,31 +79,41 @@ print("Phase 0: Editor")
 local ctx = {diagnostics = {}}
 
 print("Phase 1: Editor → Authored")
-local authored = project:lower(ctx)
+local authored = project:lower()
 check(#authored.tracks == 1, "Should have 1 track")
 
 print("Phase 2: Authored → Resolved")
-local resolved = authored:resolve(ctx)
-check(#resolved.all_nodes >= 1, "Should have ≥1 node, got " .. #resolved.all_nodes)
-check(#resolved.all_params >= 1, "Should have ≥1 param, got " .. #resolved.all_params)
+local resolved = authored:resolve()
+local rt = resolved.track_slices[1]
+check(rt ~= nil, "Should have a resolved track slice")
+check(rt and #rt.device_graph.nodes >= 1, "Should have ≥1 resolved node")
+check(rt and #rt.mixer_params >= 2, "Should have track mixer params")
 
 print("Phase 3: Resolved → Classified")
-local classified = resolved:classify(ctx)
-check(#classified.literals >= 1, "Should have ≥1 literal")
+local classified = resolved:classify()
+local ct = classified.track_slices[1]
+local classified_literal_count = (ct and #ct.mixer_literals or 0) + (ct and ct.device_graph and #ct.device_graph.literals or 0)
+check(classified_literal_count >= 1, "Should have ≥1 classified literal")
 
 print("Phase 4: Classified → Scheduled")
-local scheduled = classified:schedule(ctx)
-check(#scheduled.node_jobs >= 1, "Should have ≥1 node job")
-check(scheduled.total_buffers >= 3, "Should have ≥3 buffers (master L + R + work)")
+local scheduled = classified:schedule()
+local tp = scheduled.track_programs[1]
+check(tp ~= nil, "Should have a scheduled track program")
+check(tp and tp.device_graph and #tp.device_graph.node_jobs >= 1, "Should have ≥1 scheduled node job")
+check(tp and tp.total_buffers >= 3, "Should have ≥3 buffers (master L + R + work)")
 
--- Show literal table
 print("  Literals:")
-for i = 1, #scheduled.literals do
-    print("    [" .. (i-1) .. "] = " .. scheduled.literals[i].value)
+if tp then
+    for i = 1, #tp.mixer_literals do
+        print("    mixer[" .. (i-1) .. "] = " .. tp.mixer_literals[i].value)
+    end
+    for i = 1, #tp.device_graph.literals do
+        print("    graph[" .. (i-1) .. "] = " .. tp.device_graph.literals[i].value)
+    end
 end
 
 print("Phase 5: Scheduled → Kernel")
-local kernel = scheduled:compile(ctx)
+local kernel = scheduled:compile()
 check(kernel ~= nil, "Kernel should not be nil")
 local render = kernel:entry_fn()
 check(render ~= nil, "Should have a compiled render function")

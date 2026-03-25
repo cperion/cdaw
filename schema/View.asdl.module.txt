@@ -72,7 +72,7 @@ module View {
         View.SessionState* session_state
     ) unique
     methods {
-        to_decl(ViewCtx ctx) -> TerraUIDecl
+        to_decl() -> TerraUIDecl
     }
 
     -- SemanticRef names stable Editor-backed objects as they appear in View.
@@ -119,7 +119,7 @@ module View {
         View.StatusBar?   status_bar
     )
     methods {
-        to_decl(ViewCtx ctx) -> TerraUIDecl
+        to_decl() -> TerraUIDecl
     }
 
     -- MainArea is the high-level workspace composition algebra.
@@ -280,7 +280,7 @@ module View {
         View.TransportCommand* commands
     )
     methods {
-        to_decl(ViewCtx ctx) -> TerraUIDecl
+        to_decl() -> TerraUIDecl
     }
 
     TransportAnchor = (
@@ -340,7 +340,7 @@ module View {
         View.ArrangementLane*     lanes
     )
     methods {
-        to_decl(ViewCtx ctx) -> TerraUIDecl
+        to_decl() -> TerraUIDecl
     }
 
     -- ArrangementAnchor lowering guidance:
@@ -551,7 +551,7 @@ module View {
         View.PianoExprLaneView*        expr_lanes
     )
     methods {
-        to_decl(ViewCtx ctx) -> TerraUIDecl
+        to_decl() -> TerraUIDecl
     }
 
     PianoKeyboardView = (
@@ -741,7 +741,7 @@ module View {
         View.LauncherColumn*     columns
     )
     methods {
-        to_decl(ViewCtx ctx) -> TerraUIDecl
+        to_decl() -> TerraUIDecl
     }
 
     -- Launcher anchors should prefer semantic refs over ad hoc coordinate-like
@@ -933,7 +933,7 @@ module View {
         View.MixerStrip*     strips
     )
     methods {
-        to_decl(ViewCtx ctx) -> TerraUIDecl
+        to_decl() -> TerraUIDecl
     }
 
     -- Canonical mixer-strip projection for one Editor.Track.
@@ -1035,7 +1035,7 @@ module View {
         View.DeviceEntry*        entries
     )
     methods {
-        to_decl(ViewCtx ctx) -> TerraUIDecl
+        to_decl() -> TerraUIDecl
     }
 
     -- One rendered device entry/card inside a chain projection.
@@ -1095,7 +1095,7 @@ module View {
                             View.DeviceSurfaceCommand* commands,
                             View.DeviceSectionView* sections)
     methods {
-        to_decl(ViewCtx ctx) -> TerraUIDecl
+        to_decl() -> TerraUIDecl
     }
 
     DeviceSectionView = (
@@ -1405,7 +1405,7 @@ module View {
         View.GridCableView*   cables
     )
     methods {
-        to_decl(ViewCtx ctx) -> TerraUIDecl
+        to_decl() -> TerraUIDecl
     }
 
     -- One rendered module body within a GridPatchView.
@@ -1640,7 +1640,7 @@ module View {
         View.InspectorTabView*    tabs
     )
     methods {
-        to_decl(ViewCtx ctx) -> TerraUIDecl
+        to_decl() -> TerraUIDecl
     }
 
     InspectorAnchor = (
@@ -1742,7 +1742,7 @@ module View {
         View.BrowserSection*    sections
     )
     methods {
-        to_decl(ViewCtx ctx) -> TerraUIDecl
+        to_decl() -> TerraUIDecl
     }
 
     BrowserAnchor = (

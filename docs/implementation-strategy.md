@@ -1,5 +1,9 @@
 # Terra DAW Implementation Strategy
 
+See also:
+
+- `docs/asdl-purity-refactor-plan.md` — architectural intent for the ASDL-first purity refactor
+
 ## Thesis
 
 This project is implemented as a set of **small, total, phase-local methods**
@@ -55,9 +59,10 @@ a concrete mechanism with code behind it.
 
 ### Project management
 
-- **The progress tracker.**  `tools/progress.t` parses the ASDL to discover
-  what methods should exist, diffs against runtime registrations.  Adding a type
-  with `methods {}` to the schema = creating a ticket.  No manual checklist.
+- **The progress tracker.**  `tools/progress.t` parses the schema text to
+  discover what methods should exist, uses the loaded ASDL runtime to discover
+  variant families, and diffs both against runtime registrations. Adding a type
+  with `methods {}` to the schema = creating a ticket. No manual checklist.
 - **The status declarations.**  `diag.status()` + `diag.wrap()` carry a
   `"stub"` / `"partial"` / `"real"` tag.  Changing one string = moving the
   ticket across the board.
@@ -128,7 +133,7 @@ The `schema/*.asdl.module.txt` files declare every method:
 ```
 Track = (...)
 methods {
-    lower(LowerCtx ctx) -> Authored.Track
+    lower() -> Authored.Track
 }
 ```
 
@@ -139,15 +144,21 @@ checklist to maintain.
 
 ### 2. Every method uses the unified error-boundary wrapper
 
+**Canonical boundary rule:** phase methods take only explicit semantic
+parameters — often none beyond `self`. They must not depend on an opaque phase
+`ctx` as part of their semantic result. Temporary allocators, interning tables,
+and codegen scratch state belong inside the memoized implementation, not in the
+public method signature.
+
 ```lua
 local diag = require("impl/_support/diagnostics")
 
 -- Load-time declaration (visible to progress tracker even before first call)
 diag.status("editor.track.lower", "partial")
 
-function D.Editor.Track:lower(ctx)
-    return diag.wrap(ctx, "editor.track.lower", "partial", function()
-        -- real body
+function D.Editor.Track:lower()
+    return diag.wrap(nil, "editor.track.lower", "partial", function()
+        -- pure memoized body on explicit args only
         return output
     end, function(err)
         -- fallback: valid degraded output
@@ -160,7 +171,7 @@ end
 - **pcall error boundary** — body failure triggers the fallback, never crashes the pipeline
 - **status self-reporting** — `"stub"` / `"partial"` / `"real"` registered at call time
 - **call tracking** — successes vs fallbacks counted per method
-- **diagnostic recording** — failures logged to `ctx.diagnostics`
+- **diagnostic recording** — failures logged if a diagnostics sink is explicitly provided
 
 `diag.status` provides:
 - **load-time declaration** — visible to the progress tracker before any method is called
@@ -185,15 +196,18 @@ The report shows every ASDL-declared method and its status:
 Moving from stub to real is a one-file change:
 
 ```lua
--- was: diag.status("scheduled.node_job.compile", "stub")
-diag.status("scheduled.node_job.compile", "real")
+-- was: diag.status("scheduled.track_program.compile", "stub")
+diag.status("scheduled.track_program.compile", "real")
 
-function D.Scheduled.NodeJob:compile(ctx)
-    return diag.wrap(ctx, "scheduled.node_job.compile", "real", function()
+function D.Scheduled.TrackProgram:compile()
+    return diag.wrap(nil, "scheduled.track_program.compile", "real", function()
         -- real DSP code generation here
+        -- any temporary compile scratch belongs inside this implementation,
+        -- not in the public method signature
+        return kernel_unit
     end, function(err)
-        -- fallback: silence
-        return F.noop_quote()
+        -- fallback: silence / no-op unit
+        return F.kernel_unit()
     end)
 end
 ```
@@ -216,7 +230,7 @@ produces:
 | Authored → Resolved | Resolved ASDL value | `F.resolved_*()` — valid flattened form |
 | Resolved → Classified | Classified ASDL value | `F.classified_*()` — valid with zero bindings |
 | Classified → Scheduled | Scheduled ASDL value | `F.scheduled_*()` — valid with no jobs |
-| Scheduled → Kernel | TerraQuote or Kernel value | `F.noop_quote()` — silence / zero / passthrough |
+| Scheduled → Kernel | `Kernel.Unit` or `Kernel.Project` | `F.kernel_unit()` / `F.kernel_project()` — silence / zero / passthrough |
 
 Fallback constructors live in `impl/_support/fallbacks.t`.  They are shared by
 all stubs and by real implementations when a child fails.
@@ -224,11 +238,11 @@ all stubs and by real implementations when a child fails.
 ### Composite methods compose children safely
 
 ```lua
-function D.Editor.Project:lower(ctx)
-    return diag.wrap(ctx, "editor.project.lower", "partial", function()
-        local transport = self.transport:lower(ctx)     -- has its own wrap
-        local tracks = diag.map(ctx, "editor.project.lower.tracks",
-            self.tracks, function(t) return t:lower(ctx) end)  -- per-item protection
+function D.Editor.Project:lower()
+    return diag.wrap(nil, "editor.project.lower", "partial", function()
+        local transport = self.transport:lower()     -- has its own wrap
+        local tracks = diag.map(nil, "editor.project.lower.tracks",
+            self.tracks, function(t) return t:lower() end)  -- per-item protection
         return D.Authored.Project(self.name, ..., transport, tracks, ...)
     end, function(err)
         return F.authored_project(self.name)
@@ -237,9 +251,9 @@ end
 ```
 
 If `Transport:lower` throws → its own wrap catches it, returns
-`F.authored_transport()`.  If one track throws → `diag.map` drops it, records a
-diagnostic.  If the whole body throws → the outer wrap catches, returns an empty
-project.  The pipeline never crashes.
+`F.authored_transport()`. If one track throws → `diag.map` drops it. If the
+whole body throws → the outer wrap catches, returns an empty project. The
+pipeline never crashes.
 
 ### List mapping with per-item protection
 
@@ -367,10 +381,10 @@ the **parent type**.  ASDL's `__newindex` propagation copies it to all variants:
 
 ```lua
 -- Parent method — automatically inherited by NativeDevice, LayerDevice, etc.
-function D.Editor.Device:lower(ctx)
-    return diag.wrap(ctx, "editor.device.lower", "partial", function()
-        if self.kind == "NativeDevice" then return lower_native(self.body, ctx)
-        elseif self.kind == "LayerDevice" then return lower_layer(self.body, ctx)
+function D.Editor.Device:lower()
+    return diag.wrap(nil, "editor.device.lower", "partial", function()
+        if self.kind == "NativeDevice" then return lower_native(self.body)
+        elseif self.kind == "LayerDevice" then return lower_layer(self.body)
         -- ...
         end
     end, function(err)
@@ -526,8 +540,9 @@ modulators → zero control, analyzers → no-op.
 note event playback.
 
 **First node kinds**: GainNode, PanNode, basic EQ, basic synth, ADSR, LFO,
-delay, compressor — each implemented as a `Scheduled.NodeJob:compile`
-specialization dispatching on `kind_code`.
+delay, compressor — each implemented inside reusable scheduled compilation
+units (e.g. `Scheduled.GraphProgram:compile()` / `Scheduled.TrackProgram:compile()`)
+by specializing on `kind_code` payloads carried by scheduled node jobs.
 
 **Modulation runtime**: evaluate mod slot output → apply routes to target params
 → bipolar mapping → scale modulation.

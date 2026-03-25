@@ -5,6 +5,12 @@
 local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 diag.status("view.device_view.to_decl", "real")
+diag.variant_family("view.device_view.to_decl", "View", "DeviceView")
+diag.variant_status("view.device_view.to_decl", "NativeDeviceView", "real")
+diag.variant_status("view.device_view.to_decl", "LayerContainerView", "real")
+diag.variant_status("view.device_view.to_decl", "SelectorContainerView", "real")
+diag.variant_status("view.device_view.to_decl", "SplitContainerView", "real")
+diag.variant_status("view.device_view.to_decl", "GridContainerView", "real")
 local V = D.View
 
 local C = require("impl/view/_support/common")
@@ -13,6 +19,9 @@ local B = require("impl/view/components/button")
 local P = require("impl/view/components/placeholder_panel")
 local LR = require("impl/view/components/list_row")
 local PF = require("impl/view/components/panel_frame")
+local chain_view = require("impl/view/device_chain/view")
+
+local M = {}
 
 -- ── Helper: lower a single param view ──
 
@@ -148,7 +157,7 @@ local function lower_lane(lane_type, lane, ctx)
     end
 
     -- The lane contains a nested DeviceChainView
-    local chain_decl = lane.chain:to_decl(ctx)
+    local chain_decl = chain_view.lower(lane.chain, ctx)
 
     local children = {
         T.body_label(ctx, label, {
@@ -185,7 +194,7 @@ end
 -- DeviceView:to_decl — sum type dispatch
 -- ═══════════════════════════════════════════════════════════════════════
 
-function V.DeviceView:to_decl(ctx)
+local function lower(self, ctx)
     return diag.wrap(ctx, "view.device_view.to_decl", "real", function()
         local ui = ctx.ui
         local p = C.palette(ctx)
@@ -285,4 +294,14 @@ function V.DeviceView:to_decl(ctx)
     end)
 end
 
-return true
+local to_decl_impl = terralib.memoize(function(self)
+    return lower(self, C.new_view_ctx())
+end)
+
+M.lower = lower
+
+function V.DeviceView:to_decl()
+    return to_decl_impl(self)
+end
+
+return M

@@ -3,19 +3,23 @@
 
 local C = require("impl/view/_support/common")
 local P = require("impl/view/components/placeholder_panel")
+local chain_view = require("impl/view/device_chain/view")
+local device_view = require("impl/view/device_view")
+local grid_patch_view = require("impl/view/grid_patch_view")
+local piano_roll_view = require("impl/view/piano_roll/view")
 
 local M = {}
 
 function M.lower(detail_panel, ctx)
     if detail_panel == nil then return nil end
     if detail_panel.kind == "DeviceChainDetail" then
-        return detail_panel.chain:to_decl(ctx)
+        return chain_view.lower(detail_panel.chain, ctx)
     elseif detail_panel.kind == "DeviceDetail" then
-        return detail_panel.device:to_decl(ctx)
+        return device_view.lower(detail_panel.device, ctx)
     elseif detail_panel.kind == "GridDetail" then
-        return detail_panel.patch:to_decl(ctx)
+        return grid_patch_view.lower(detail_panel.patch, ctx)
     elseif detail_panel.kind == "PianoRollDetail" then
-        return detail_panel.piano_roll:to_decl(ctx)
+        return piano_roll_view.lower(detail_panel.piano_roll, ctx)
     end
     C.record_diag(ctx, "warning", "view.detail.unsupported", detail_panel.kind)
     return P.fallback_node(ctx, "detail/unsupported", "Unsupported detail panel", detail_panel.kind)

@@ -208,7 +208,22 @@ That's the core pattern. One line repeated at every level of the hierarchy. The 
 
 Combined with ASDL's `unique` types (which memoize construction so structurally identical objects are `==`), this gives us structural caching: same domain configuration → same `{ fn, state_t }` pair returned instantly.
 
+**Hard rule: no hidden semantic state.** Because `terralib.memoize` keys by **Lua equality on the explicit argument list only**, every semantic dependency of a memoized compiler must appear in that explicit argument list (often just `self`, sometimes `self, transport, tempo_map`, etc.). Do **not** smuggle semantic inputs through hidden Lua fields, side tables, `rawset`, ambient globals, mutable contexts, or ad hoc attached metadata. If a compiler's behavior depends on something, that something must either:
+
+1. be structurally owned by `self` in the ASDL value itself, or
+2. be passed as an explicit semantic parameter.
+
+If you hide semantic inputs off-schema, memoize can return a stale cached function even though the real meaning changed. So the practical rule is simple:
+
+- **no hidden state**
+- **explicit semantic parameters only**
+- **trust memoize only on explicit Lua-equality keys**
+
+A corollary for this repo: every **public phase-transition boundary** should be implemented as a memoized body over those explicit parameters. If a public lowering/resolve/classify/schedule/compile/to_decl boundary is not memoized, treat that as an architectural bug unless it is intentionally not a compilation boundary at all (for example, a trivial runtime accessor like `Kernel.Project:entry_fn()`).
+
 **Why `{ fn, state_t }` and not just `fn`:** The state type must be as granular as the function. If a level returns only `fn`, the function must take a pointer to some external state struct — and that struct's layout can change when OTHER parts of the project change, invalidating the cached function silently. Returning `{ fn, state_t }` means the function owns its ABI. The parent composes child `state_t`s into its own struct and passes pointers to each child. A cache hit on a child is memory-safe because the child's state type hasn't changed — even if the parent's layout has. This is explained fully in the JIT hot-swap section.
+
+This is also the memory-management win of the pattern. If you model the domain at the right granularity, you do **not** need a second hand-written subsystem for state ownership, state lifetime, or offset bookkeeping. Each memoized unit declares the exact state layout it needs; the parent embeds that layout as a field; Terra's normal value/layout rules determine offsets; the parent passes a pointer to the embedded child state. Ownership, lifetime, and access paths all fall out of the same structure. The model is the memory plan.
 
 The pattern applied at three levels:
 
@@ -794,6 +809,24 @@ There is no explicit `:compile()` step. From the docs: "When a Terra function is
 | `terralib.memoize(fn)` | First call with new args | Cached return value (Terra function) |
 | `fn(args...)` | First call: LLVM JIT + execute. After: native execution | Return values |
 
+This table is more than an execution summary. It is the boundary map of the
+whole architecture. Once these stages are kept explicit, a large amount of
+system complexity disappears:
+
+- **loading boundaries** are explicit — ASDL construction happens in Lua when
+  the module/schema loads
+- **definition boundaries** are explicit — escapes run when Terra functions are
+  defined
+- **typecheck/codegen boundaries** are explicit — metamethods/macros run when
+  Terra queries behavior during compilation
+- **JIT boundaries** are explicit — native code appears on first call
+- **runtime boundaries** are explicit — after that, only machine code remains
+
+This matters for the same reason granular `state_t` matters: when the boundary is
+explicit, ownership and responsibility become obvious. You do not need a second
+implicit subsystem to answer "when does this happen?", "who owns this failure?",
+or "what stage is allowed to allocate/inspect/emit this?" The architecture is
+just the composition of these named boundaries.
 
 ## The role of escape vs. macro
 
@@ -1166,6 +1199,24 @@ The session-level function does still regenerate because it must compose the new
 
 This is why ASDL `unique` matters at every level, not just the top. ASDL `unique` guarantees that structurally identical values are the same Lua object (`==`). Combined with structural sharing in the edit path, unchanged subtrees trigger instant memoize hits. Combined with granular state types, those cache hits are memory-safe. The three pieces — `unique` identity, structural sharing, granular state — form a complete incremental compilation system.
 
+### Why this largely eliminates manual state/lifetime management
+
+A useful way to read the pattern is that **state management is not a separate engineering problem once the units are modeled correctly**. We do not first invent a global runtime state arena, then separately invent caches, then separately track which offsets belong to which child. Instead:
+
+1. each memoized compiler returns its own `state_t`
+2. the parent embeds child `state_t`s as fields in its own state struct
+3. the parent passes `&state.child_i` to the child function
+4. Terra's normal struct layout rules determine offsets and lifetime
+
+That means the same hierarchy that gives us incremental compilation also gives us correct memory ownership:
+
+- **ownership**: parent owns child state by embedding it
+- **lifetime**: child state lives exactly as long as the parent state value that contains it
+- **addressing**: the parent computes the correct child pointer by field access, not by hand-maintained offset tables
+- **stability**: unchanged child units keep the same ABI and therefore remain valid cache hits
+
+So when the model is correct, we get memory management "for free" in the precise sense that there is no additional conceptual subsystem needed for most stateful compilation problems. The semantic tree, the memoized compile units, and the composed state structs are already the ownership graph.
+
 ### Memoize boundaries as natural code size limits
 
 There is a hidden problem with the pattern that granular memoization solves for free: **code explosion.**
@@ -1434,15 +1485,17 @@ In our pattern: zero. `terralib.memoize` is the cache. The function pointer is t
 
 The entire live-recompilation system — JIT compilation, caching, incremental recompilation, state isolation, code size control, hot-swap — is not a feature we built. It's an emergent property of one design decision applied at every level: `terralib.memoize` on functions that return `{ fn, state_t }`.
 
-From that single decision, four properties emerge simultaneously:
+From that single decision, five properties emerge simultaneously:
 
 1. **Incremental compilation.** Only the changed path from leaf to root recompiles. Unchanged subtrees are cache hits. Cost is O(depth), not O(total).
 
 2. **State isolation.** Each function owns its own state type. The parent composes child states by embedding them. Cache hits are memory-safe because the cached function's ABI never changes.
 
-3. **Code size control.** Each memoize boundary is a call boundary. Each function is 100-500 bytes of machine code — small enough for LLVM to optimize in <1ms, small enough to fit in L1 I-cache.
+3. **Memory/lifetime management by construction.** Child state is owned by the parent that embeds it. Lifetime follows normal value lifetime. Pointer correctness comes from field access into composed structs, not from a parallel manual offset/arena system.
 
-4. **Hot-swap.** Terra functions are Lua values. Reassigning the variable changes the function pointer. The hot loop calls whatever it points to. Old functions stay cached. Undo is a cache hit.
+4. **Code size control.** Each memoize boundary is a call boundary. Each function is 100-500 bytes of machine code — small enough for LLVM to optimize in <1ms, small enough to fit in L1 I-cache.
+
+5. **Hot-swap.** Terra functions are Lua values. Reassigning the variable changes the function pointer. The hot loop calls whatever it points to. Old functions stay cached. Undo is a cache hit.
 
 We didn't design four separate systems. We called `terralib.memoize` at three levels of the hierarchy and returned granular state types. Everything else followed.
 
@@ -2674,6 +2727,26 @@ All of these properties — specification, architecture, file structure, error b
 
 The ASDL schema is not documentation about the system.  It is the system.  Everything else — files, tests, errors, fallbacks, progress, memory, compilation, serialization — is derived.
 
+### Boundary correctness collapses infrastructure
+
+This is the deeper payoff of the pattern.  When the boundaries are modeled correctly, large categories of "infrastructure" stop being separate infrastructure and become derived consequences of the same structure.
+
+From the same correctly modeled phase/type/unit boundaries, we get:
+
+- **memory management** — because `state_t` composition is already the ownership graph
+- **lifetime management** — because child state lives exactly as long as the parent state value embedding it
+- **error handling** — because each typed method boundary is already a local degradation boundary
+- **loading / JIT ownership** — because load-time, definition-time, typecheck-time, first-call JIT, and runtime are explicit stages
+- **test structure** — because the ASDL/method tree is already the test tree
+- **implementation structure** — because the ASDL tree is already the file tree
+- **progress tracking** — because `methods {}` and variant families are already the inventory
+- **stubs / fallbacks** — because each target type already defines the shape of a valid degraded output
+- **lazy work** — because exotype queries and memoized compilers only do the work demanded by the current path
+- **incremental compilation** — because unchanged semantic subtrees remain cache hits
+- **code size control** — because memoize boundaries are also call boundaries
+- **hot swap / undo** — because old compiled units remain cached by semantic identity
+
+This is why the pattern gives more than it first appears to give.  It is not just a code-generation technique.  It is a way of arranging the architecture so that multiple hard problems collapse into the same boundary structure instead of requiring separate subsystems.
 
 ## Summary
 
@@ -2687,9 +2760,11 @@ The pattern rests on **exotypes** (DeVito et al., PLDI 2014): user-defined types
 
 4. **The schema DSL** (optional, separate project) — a Terra language extension that replaces raw ASDL definition strings with validated syntax. Uses Terra's language extension API and Pratt parser to make ASDL structural errors into standard Terra errors with file names and line numbers. Checks variant count, field uniqueness, phase ordering, method direction, type resolution, recursion safety, and value constraints. Produces the same ASDL contexts as `context:Define()`. Everything downstream works identically.
 
-The developer's job: define the domain in ASDL (via the schema DSL or raw strings). Write `:compile(ctx)` methods that return quotes. Install exotype properties (metamethods) on the output structs. Wrap the generator in `terralib.memoize`. Everything else — typechecking, property evaluation, cycle detection, caching, code generation, LLVM optimization, JIT compilation, function pointer hot-swap — is Terra.
+The developer's job: define the domain in ASDL (via the schema DSL or raw strings). Write methods that return the next semantic product or compiled unit. Install exotype properties (metamethods) on the output structs where lazy Terra-side behavior is needed. Wrap the generator in `terralib.memoize`. Everything else — typechecking, property evaluation, cycle detection, caching, code generation, LLVM optimization, JIT compilation, function pointer hot-swap — is Terra.
 
-The hot-swap capability is not a feature we build. It's an emergent property: Terra functions are values in Lua variables. `terralib.memoize` caches them by configuration. Changing the configuration changes the variable. The hot loop calls whatever the variable points to. Old functions stay cached. Undo is a cache hit. Applied at every level with granular state types, `terralib.memoize` simultaneously provides incremental compilation (only the changed path recompiles), state isolation (each function owns its ABI), code size control (each function is a call boundary, keeping LLVM and I-cache happy), and hot-swap (reassign the pointer). Four properties from one mechanism.
+The same is true of error handling and stage ownership. If each ASDL method boundary is explicit, then each method is also a natural **error boundary**: body fails here, degrade here, continue everywhere else. If each loading/definition/typecheck/JIT/runtime boundary is explicit, then there is no hidden ambiguity about where work belongs. Loading validates and constructs schema/types. Definition walks ASDL and emits quotes. Typechecking queries exotype behavior lazily. First call JIT-compiles. Runtime executes only machine code. These are not separate frameworks layered on top of the system. They are the system's natural joints.
+
+The hot-swap capability is not a feature we build. It's an emergent property: Terra functions are values in Lua variables. `terralib.memoize` caches them by configuration. Changing the configuration changes the variable. The hot loop calls whatever the variable points to. Old functions stay cached. Undo is a cache hit. Applied at every level with granular state types, `terralib.memoize` simultaneously provides incremental compilation (only the changed path recompiles), state isolation (each function owns its ABI), memory/lifetime management by construction (ownership follows embedded state layout), code size control (each function is a call boundary, keeping LLVM and I-cache happy), and hot-swap (reassign the pointer). Multiple architectural wins from one correctly modeled set of boundaries.
 
 Everything in this document — the exotype theory, the ASDL phase design, the metamethods, the schema DSL, the seven examples, the JIT section — is context for one line:
 
