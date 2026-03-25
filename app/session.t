@@ -14,9 +14,275 @@ local D = require("daw-unified")
 require("impl/init")
 local F = require("impl/_support/fallbacks")
 local L = F.L
+local TICKS_PER_BEAT = 960
 local audio = require("app/audio")
 
 local M = {}
+
+local function map_preserve(list, fn)
+    if list == nil then return nil, false end
+
+    local changed = false
+    local out = nil
+    for i = 1, #list do
+        local old_item = list[i]
+        local new_item = fn(old_item, i)
+        if new_item ~= old_item and not changed then
+            changed = true
+            out = L()
+            for j = 1, i - 1 do out:insert(list[j]) end
+        end
+        if changed then out:insert(new_item) end
+    end
+
+    if changed then return out, true end
+    return list, false
+end
+
+local function static_param_value(param)
+    local src = param and param.source or nil
+    if src and src.kind == "StaticValue" then return src.value end
+    return nil
+end
+
+local function with_static_param_value(param, value)
+    if static_param_value(param) == value then return param end
+    return D.Editor.ParamValue(
+        param.id, param.name, param.default_value,
+        param.min_value, param.max_value,
+        D.Editor.StaticValue(value),
+        param.combine, param.smoothing
+    )
+end
+
+local function update_param_list(params, param_id, new_value)
+    return map_preserve(params, function(param)
+        if param.id ~= param_id then return param end
+        return with_static_param_value(param, new_value)
+    end)
+end
+
+local update_device_chain
+
+local function update_note_fx_lane(lane, device_id, param_id, new_value)
+    if not lane then return lane end
+    local new_chain = update_device_chain(lane.chain, device_id, param_id, new_value)
+    if new_chain == lane.chain then return lane end
+    return D.Editor.NoteFXLane(new_chain)
+end
+
+local function update_audio_fx_lane(lane, device_id, param_id, new_value)
+    if not lane then return lane end
+    local new_chain = update_device_chain(lane.chain, device_id, param_id, new_value)
+    if new_chain == lane.chain then return lane end
+    return D.Editor.AudioFXLane(new_chain)
+end
+
+local function rebuild_native_body(body, params, note_fx, post_fx)
+    return D.Editor.NativeDeviceBody(
+        body.id, body.name, body.kind,
+        params, body.modulators,
+        note_fx, post_fx,
+        body.preset, body.enabled, body.meta
+    )
+end
+
+local function rebuild_layer_container(body, layers, params, note_fx, post_fx)
+    return D.Editor.LayerContainer(
+        body.id, body.name, layers,
+        params, body.modulators,
+        note_fx, post_fx,
+        body.preset, body.enabled, body.meta
+    )
+end
+
+local function rebuild_selector_container(body, branches, params, note_fx, post_fx)
+    return D.Editor.SelectorContainer(
+        body.id, body.name, body.mode, branches,
+        params, body.modulators,
+        note_fx, post_fx,
+        body.preset, body.enabled, body.meta
+    )
+end
+
+local function rebuild_split_container(body, bands, params, note_fx, post_fx)
+    return D.Editor.SplitContainer(
+        body.id, body.name, body.kind, bands,
+        params, body.modulators,
+        note_fx, post_fx,
+        body.preset, body.enabled, body.meta
+    )
+end
+
+local function rebuild_grid_container(body, params, note_fx, post_fx)
+    return D.Editor.GridContainer(
+        body.id, body.name, body.patch,
+        params, body.modulators,
+        note_fx, post_fx,
+        body.preset, body.enabled, body.meta
+    )
+end
+
+local function update_layer(layer, device_id, param_id, new_value)
+    local new_chain = update_device_chain(layer.chain, device_id, param_id, new_value)
+    if new_chain == layer.chain then return layer end
+    return D.Editor.Layer(
+        layer.id, layer.name, new_chain,
+        layer.volume, layer.pan,
+        layer.muted, layer.meta
+    )
+end
+
+local function update_selector_branch(branch, device_id, param_id, new_value)
+    local new_chain = update_device_chain(branch.chain, device_id, param_id, new_value)
+    if new_chain == branch.chain then return branch end
+    return D.Editor.SelectorBranch(branch.id, branch.name, new_chain, branch.meta)
+end
+
+local function update_split_band(band, device_id, param_id, new_value)
+    local new_chain = update_device_chain(band.chain, device_id, param_id, new_value)
+    if new_chain == band.chain then return band end
+    return D.Editor.SplitBand(
+        band.id, band.name, band.crossover_value,
+        new_chain, band.meta
+    )
+end
+
+local function update_device(device, device_id, param_id, new_value)
+    local body = device.body
+    if not body then return device end
+
+    if device.kind == "NativeDevice" then
+        local params = body.params
+        if body.id == device_id then
+            params = select(1, update_param_list(body.params, param_id, new_value))
+        end
+        local note_fx = update_note_fx_lane(body.note_fx, device_id, param_id, new_value)
+        local post_fx = update_audio_fx_lane(body.post_fx, device_id, param_id, new_value)
+        if params == body.params and note_fx == body.note_fx and post_fx == body.post_fx then
+            return device
+        end
+        return D.Editor.NativeDevice(rebuild_native_body(body, params, note_fx, post_fx))
+
+    elseif device.kind == "LayerDevice" then
+        local layers = select(1, map_preserve(body.layers, function(layer)
+            return update_layer(layer, device_id, param_id, new_value)
+        end))
+        local params = body.params
+        if body.id == device_id then
+            params = select(1, update_param_list(body.params, param_id, new_value))
+        end
+        local note_fx = update_note_fx_lane(body.note_fx, device_id, param_id, new_value)
+        local post_fx = update_audio_fx_lane(body.post_fx, device_id, param_id, new_value)
+        if layers == body.layers and params == body.params and note_fx == body.note_fx and post_fx == body.post_fx then
+            return device
+        end
+        return D.Editor.LayerDevice(rebuild_layer_container(body, layers, params, note_fx, post_fx))
+
+    elseif device.kind == "SelectorDevice" then
+        local branches = select(1, map_preserve(body.branches, function(branch)
+            return update_selector_branch(branch, device_id, param_id, new_value)
+        end))
+        local params = body.params
+        if body.id == device_id then
+            params = select(1, update_param_list(body.params, param_id, new_value))
+        end
+        local note_fx = update_note_fx_lane(body.note_fx, device_id, param_id, new_value)
+        local post_fx = update_audio_fx_lane(body.post_fx, device_id, param_id, new_value)
+        if branches == body.branches and params == body.params and note_fx == body.note_fx and post_fx == body.post_fx then
+            return device
+        end
+        return D.Editor.SelectorDevice(rebuild_selector_container(body, branches, params, note_fx, post_fx))
+
+    elseif device.kind == "SplitDevice" then
+        local bands = select(1, map_preserve(body.bands, function(band)
+            return update_split_band(band, device_id, param_id, new_value)
+        end))
+        local params = body.params
+        if body.id == device_id then
+            params = select(1, update_param_list(body.params, param_id, new_value))
+        end
+        local note_fx = update_note_fx_lane(body.note_fx, device_id, param_id, new_value)
+        local post_fx = update_audio_fx_lane(body.post_fx, device_id, param_id, new_value)
+        if bands == body.bands and params == body.params and note_fx == body.note_fx and post_fx == body.post_fx then
+            return device
+        end
+        return D.Editor.SplitDevice(rebuild_split_container(body, bands, params, note_fx, post_fx))
+
+    elseif device.kind == "GridDevice" then
+        local params = body.params
+        if body.id == device_id then
+            params = select(1, update_param_list(body.params, param_id, new_value))
+        end
+        local note_fx = update_note_fx_lane(body.note_fx, device_id, param_id, new_value)
+        local post_fx = update_audio_fx_lane(body.post_fx, device_id, param_id, new_value)
+        if params == body.params and note_fx == body.note_fx and post_fx == body.post_fx then
+            return device
+        end
+        return D.Editor.GridDevice(rebuild_grid_container(body, params, note_fx, post_fx))
+    end
+
+    return device
+end
+
+update_device_chain = function(chain, device_id, param_id, new_value)
+    local new_devices = select(1, map_preserve(chain.devices, function(device)
+        return update_device(device, device_id, param_id, new_value)
+    end))
+    if new_devices == chain.devices then return chain end
+    return D.Editor.DeviceChain(new_devices)
+end
+
+local function rebuild_track(track, volume, devices)
+    return D.Editor.Track(
+        track.id, track.name, track.channels, track.kind,
+        track.input, volume, track.pan, devices,
+        track.clips, track.launcher_slots, track.sends,
+        track.output_track_id, track.group_track_id,
+        track.muted, track.soloed, track.armed,
+        track.monitor_input, track.phase_invert, track.meta
+    )
+end
+
+local function update_track_param(track, device_id, param_id, new_value)
+    local new_chain = update_device_chain(track.devices, device_id, param_id, new_value)
+    if new_chain == track.devices then return track end
+    return rebuild_track(track, track.volume, new_chain)
+end
+
+local function update_track_volume(track, value)
+    local new_volume = with_static_param_value(track.volume, value)
+    if new_volume == track.volume then return track end
+    return rebuild_track(track, new_volume, track.devices)
+end
+
+local function rebuild_project(proj, tracks)
+    return D.Editor.Project(
+        proj.name, proj.author, proj.format_version,
+        proj.transport, tracks, proj.scenes,
+        proj.tempo_map, proj.assets
+    )
+end
+
+local function project_with_tracks(proj, tracks)
+    if tracks == proj.tracks then return proj end
+    return rebuild_project(proj, tracks)
+end
+
+function M.update_project_param(proj, device_id, param_id, new_value)
+    local new_tracks = select(1, map_preserve(proj.tracks, function(track)
+        return update_track_param(track, device_id, param_id, new_value)
+    end))
+    return project_with_tracks(proj, new_tracks)
+end
+
+function M.update_project_track_volume(proj, track_id, value)
+    local new_tracks = select(1, map_preserve(proj.tracks, function(track)
+        if track.id ~= track_id then return track end
+        return update_track_volume(track, value)
+    end))
+    return project_with_tracks(proj, new_tracks)
+end
 
 function M.new(editor_project, opts)
     opts = opts or {}
@@ -34,17 +300,15 @@ function M.new(editor_project, opts)
 
     -- ── Compile the full pipeline ──
     function s:compile()
-        local ctx = {diagnostics = {}}
-        local authored = self.project:lower(ctx)
-        local resolved = authored:resolve(ctx)
-        local classified = resolved:classify(ctx)
-        local scheduled = classified:schedule(ctx)
-        local kernel = scheduled:compile(ctx)
+        local authored = self.project:lower()
+        local resolved = authored:resolve(TICKS_PER_BEAT)
+        local classified = resolved:classify()
+        local scheduled = classified:schedule()
+        local kernel = scheduled:compile()
         self.render_fn = kernel:entry_fn()
         self.compiled = true
-        self._last_diagnostics = ctx.diagnostics
+        self._last_diagnostics = {}
 
-        -- Hot-swap into audio if running
         if self.audio then
             self.audio:set_render_fn(self.render_fn)
         end
@@ -81,14 +345,14 @@ function M.new(editor_project, opts)
     -- ── Editor mutations ──
     -- Push current state to undo stack, apply mutation, recompile.
     function s:mutate(fn)
-        -- Save for undo
+        local next_project = fn(self.project)
+        if next_project == nil or next_project == self.project then
+            return self
+        end
+
         table.insert(self._undo_stack, self.project)
         self._redo_stack = {}
-
-        -- Apply mutation (fn receives project, returns new project)
-        self.project = fn(self.project)
-
-        -- Recompile
+        self.project = next_project
         self:compile()
         return self
     end
@@ -111,85 +375,18 @@ function M.new(editor_project, opts)
 
     -- ── Common commands ──
 
-    -- SetParamValue: find a param by device_id + param_id, set static value
+    -- SetParamValue: find a param by stable device_id + param_id, set static value.
+    -- Structural sharing is preserved for every untouched subtree.
     function s:set_param(device_id, param_id, new_value)
         return self:mutate(function(proj)
-            -- Deep clone tracks with the modified param
-            local new_tracks = L()
-            for i = 1, #proj.tracks do
-                local track = proj.tracks[i]
-                local new_devices = L()
-                for j = 1, #track.devices.devices do
-                    local dev = track.devices.devices[j]
-                    if dev.body and dev.body.id == device_id then
-                        -- Found the device, modify its params
-                        local new_params = L()
-                        for k = 1, #dev.body.params do
-                            local p = dev.body.params[k]
-                            if p.id == param_id then
-                                new_params:insert(D.Editor.ParamValue(
-                                    p.id, p.name, p.default_value,
-                                    p.min_value, p.max_value,
-                                    D.Editor.StaticValue(new_value),
-                                    p.combine, p.smoothing))
-                            else
-                                new_params:insert(p)
-                            end
-                        end
-                        -- Reconstruct the device with new params
-                        local new_body = D.Editor.NativeDeviceBody(
-                            dev.body.id, dev.body.name, dev.body.kind,
-                            new_params, dev.body.modulators,
-                            dev.body.note_fx, dev.body.post_fx,
-                            dev.body.preset, dev.body.enabled, dev.body.meta)
-                        new_devices:insert(D.Editor.NativeDevice(new_body))
-                    else
-                        new_devices:insert(dev)
-                    end
-                end
-                local new_chain = D.Editor.DeviceChain(new_devices)
-                new_tracks:insert(D.Editor.Track(
-                    track.id, track.name, track.channels, track.kind,
-                    track.input, track.volume, track.pan, new_chain,
-                    track.clips, track.launcher_slots, track.sends,
-                    track.output_track_id, track.group_track_id,
-                    track.muted, track.soloed, track.armed,
-                    track.monitor_input, track.phase_invert, track.meta))
-            end
-            return D.Editor.Project(
-                proj.name, proj.author, proj.format_version,
-                proj.transport, new_tracks, proj.scenes,
-                proj.tempo_map, proj.assets)
+            return M.update_project_param(proj, device_id, param_id, new_value)
         end)
     end
 
-    -- SetTrackVolume: set a track's volume param
+    -- SetTrackVolume: set a track's volume param while preserving all untouched structure.
     function s:set_track_volume(track_id, value)
         return self:mutate(function(proj)
-            local new_tracks = L()
-            for i = 1, #proj.tracks do
-                local t = proj.tracks[i]
-                if t.id == track_id then
-                    local new_vol = D.Editor.ParamValue(
-                        t.volume.id, t.volume.name, t.volume.default_value,
-                        t.volume.min_value, t.volume.max_value,
-                        D.Editor.StaticValue(value),
-                        t.volume.combine, t.volume.smoothing)
-                    new_tracks:insert(D.Editor.Track(
-                        t.id, t.name, t.channels, t.kind, t.input,
-                        new_vol, t.pan, t.devices,
-                        t.clips, t.launcher_slots, t.sends,
-                        t.output_track_id, t.group_track_id,
-                        t.muted, t.soloed, t.armed,
-                        t.monitor_input, t.phase_invert, t.meta))
-                else
-                    new_tracks:insert(t)
-                end
-            end
-            return D.Editor.Project(
-                proj.name, proj.author, proj.format_version,
-                proj.transport, new_tracks, proj.scenes,
-                proj.tempo_map, proj.assets)
+            return M.update_project_track_volume(proj, track_id, value)
         end)
     end
 

@@ -7,7 +7,6 @@ local F = require("impl/_support/fallbacks")
 local L = F.L
 diag.status("authored.asset_bank.resolve", "real")
 
-local DEFAULT_TICKS_PER_BEAT = 960
 local loop_mode_codes = { NoLoop = 0, LoopFwd = 1, LoopPingPong = 2, LoopRev = 3 }
 
 local resolve_asset_bank = terralib.memoize(function(self, ticks_per_beat)
@@ -72,7 +71,7 @@ local resolve_asset_bank = terralib.memoize(function(self, ticks_per_beat)
 end)
 
 function D.Authored.AssetBank:resolve(ticks_per_beat)
-    ticks_per_beat = type(ticks_per_beat) == "number" and ticks_per_beat or DEFAULT_TICKS_PER_BEAT
+    assert(type(ticks_per_beat) == "number", "Authored.AssetBank:resolve requires explicit number ticks_per_beat")
     return diag.wrap(nil, "authored.asset_bank.resolve", "real", function()
         return resolve_asset_bank(self, ticks_per_beat)
     end, function()

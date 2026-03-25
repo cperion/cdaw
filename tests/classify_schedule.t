@@ -5,6 +5,7 @@ local D = require("daw-unified")
 require("impl/init")
 local F = require("impl/_support/fallbacks")
 local L = F.L
+local TICKS_PER_BEAT = 960
 
 local pass, fail = 0, 0
 local function check(c, m) if c then pass=pass+1 else fail=fail+1; print("  FAIL: "..m) end end
@@ -64,8 +65,8 @@ do
     )
     local scheduled = ts:classify():schedule()
     check(scheduled.track.track_id == 1, "track id preserved")
-    check(#scheduled.device_graph.node_jobs == 1, "device graph job created")
-    check(#scheduled.steps >= 1, "steps created")
+    check(#scheduled.device_graph.node_programs == 1, "device graph program created")
+    check(#scheduled.output_programs >= 1, "output programs created")
     check(scheduled.total_buffers >= 4, "buffers allocated")
     print("  PASS")
 end
@@ -83,7 +84,7 @@ do
             D.Editor.DeviceChain(L{D.Editor.NativeDevice(D.Editor.NativeDeviceBody(9, "Square", D.Authored.SquareOsc(), L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))}),
             L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()), D.Authored.AssetBank(L(), L(), L(), L(), L()))
-    local classified = project:lower():resolve():classify()
+    local classified = project:lower():resolve(TICKS_PER_BEAT):classify()
     local scheduled = classified:schedule()
     check(#classified.track_slices[1].mixer_block_ops >= 1, "classified block ops")
     check(#classified.track_slices[1].mixer_block_pts >= 2, "classified block pts")
@@ -106,7 +107,7 @@ do
             }),
             L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()), D.Authored.AssetBank(L(), L(), L(), L(), L()))
-    local kernel = project:lower():resolve():classify():schedule():compile()
+    local kernel = project:lower():resolve(TICKS_PER_BEAT):classify():schedule():compile()
     local outL = terralib.new(float[64])
     local outR = terralib.new(float[64])
     kernel:entry_fn()(outL, outR, 64)

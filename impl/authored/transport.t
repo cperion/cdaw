@@ -8,9 +8,6 @@ local L = F.L
 diag.status("authored.tempo_map.resolve", "real")
 diag.status("authored.transport.resolve", "real")
 
-local DEFAULT_TICKS_PER_BEAT = 960
-local DEFAULT_SAMPLE_RATE = 44100
-
 local quantize_codes = {}
 local qnames = {"QNone","Q1_64","Q1_32","Q1_16","Q1_8","Q1_4","Q1_2","Q1Bar","Q2Bars","Q4Bars"}
 for i, name in ipairs(qnames) do
@@ -77,7 +74,7 @@ local resolve_tempo_map_for = terralib.memoize(function(self, ticks_per_beat, sa
 end)
 
 function D.Authored.Transport:resolve(ticks_per_beat)
-    ticks_per_beat = type(ticks_per_beat) == "number" and ticks_per_beat or DEFAULT_TICKS_PER_BEAT
+    assert(type(ticks_per_beat) == "number", "Authored.Transport:resolve requires explicit number ticks_per_beat")
     return diag.wrap(nil, "authored.transport.resolve", "real", function()
         return resolve_transport(self, ticks_per_beat)
     end, function()
@@ -86,8 +83,8 @@ function D.Authored.Transport:resolve(ticks_per_beat)
 end
 
 function D.Authored.TempoMap:resolve(ticks_per_beat, sample_rate)
-    ticks_per_beat = type(ticks_per_beat) == "number" and ticks_per_beat or DEFAULT_TICKS_PER_BEAT
-    sample_rate = type(sample_rate) == "number" and sample_rate or DEFAULT_SAMPLE_RATE
+    assert(type(ticks_per_beat) == "number", "Authored.TempoMap:resolve requires explicit number ticks_per_beat")
+    assert(type(sample_rate) == "number", "Authored.TempoMap:resolve requires explicit number sample_rate")
     return diag.wrap(nil, "authored.tempo_map.resolve", "real", function()
         return resolve_tempo_map_for(self, ticks_per_beat, sample_rate)
     end, function()

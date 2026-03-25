@@ -5,6 +5,7 @@ local D = require("daw-unified")
 require("impl/init")
 local F = require("impl/_support/fallbacks")
 local L = F.L
+local TICKS_PER_BEAT = 960
 
 local pass, fail = 0, 0
 local function check(c, m) if c then pass=pass+1 else fail=fail+1; print("  FAIL: "..m) end end
@@ -62,7 +63,7 @@ do
             L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
-    local tp = project:lower():resolve():classify():schedule().track_programs[1]
+    local tp = project:lower():resolve(TICKS_PER_BEAT):classify():schedule().track_programs[1]
     local unit = tp:compile()
     local outL = terralib.new(float[64])
     local outR = terralib.new(float[64])
@@ -98,7 +99,7 @@ do
         },
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
-    local kernel = project:lower():resolve():classify():schedule():compile()
+    local kernel = project:lower():resolve(TICKS_PER_BEAT):classify():schedule():compile()
     local entry = kernel:entry_fn()
     local outL = terralib.new(float[64])
     local outR = terralib.new(float[64])
@@ -106,6 +107,54 @@ do
     local expected = ((0.4 * 0.5) + (0.2 * 0.5)) * math.cos(math.pi / 4)
     check(approx(outL[0], expected, 0.01), "two tracks mixed to expected equal-power output")
     check(approx(outL[0], outR[0], 0.001), "mix is symmetric L/R")
+    print("  PASS")
+end
+
+print("4. scheduled.node_program.compile")
+do
+    local unit = F.scheduled_node_program(1):compile()
+    check(unit ~= nil, "node program unit returned")
+    check(unit.fn ~= nil, "node program fn returned")
+    print("  PASS")
+end
+
+print("5. scheduled.mod_program.compile")
+do
+    local unit = F.scheduled_mod_program():compile()
+    check(unit ~= nil, "mod program unit returned")
+    check(unit.fn ~= nil, "mod program fn returned")
+    print("  PASS")
+end
+
+print("6. scheduled.clip_program.compile")
+do
+    local unit = F.scheduled_clip_program():compile()
+    check(unit ~= nil, "clip program unit returned")
+    check(unit.fn ~= nil, "clip program fn returned")
+    print("  PASS")
+end
+
+print("7. scheduled.send_program.compile")
+do
+    local unit = F.scheduled_send_program():compile()
+    check(unit ~= nil, "send program unit returned")
+    check(unit.fn ~= nil, "send program fn returned")
+    print("  PASS")
+end
+
+print("8. scheduled.mix_program.compile")
+do
+    local unit = F.scheduled_mix_program():compile()
+    check(unit ~= nil, "mix program unit returned")
+    check(unit.fn ~= nil, "mix program fn returned")
+    print("  PASS")
+end
+
+print("9. scheduled.output_program.compile")
+do
+    local unit = F.scheduled_output_program():compile()
+    check(unit ~= nil, "output program unit returned")
+    check(unit.fn ~= nil, "output program fn returned")
     print("  PASS")
 end
 

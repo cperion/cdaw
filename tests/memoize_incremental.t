@@ -6,6 +6,7 @@ require("impl/init")
 local session = require("app/session")
 local F = require("impl/_support/fallbacks")
 local L = F.L
+local TICKS_PER_BEAT = 960
 
 local pass, fail = 0, 0
 local function check(c, m)
@@ -63,7 +64,7 @@ end
 
 local function snapshot(project)
     local authored = project:lower()
-    local resolved = authored:resolve()
+    local resolved = authored:resolve(TICKS_PER_BEAT)
     local classified = resolved:classify()
     local scheduled = classified:schedule()
     local kernel = scheduled:compile()
@@ -72,11 +73,49 @@ local function snapshot(project)
     local graph_units = {}
     local track_ptrs = {}
     local graph_ptrs = {}
+    local node_programs = {}
+    local node_units = {}
+    local node_ptrs = {}
+    local mix_programs = {}
+    local mix_units = {}
+    local mix_ptrs = {}
+    local output_programs = {}
+    local output_units = {}
+    local output_ptrs = {}
+
     for i = 1, #scheduled.track_programs do
-        track_units[i] = scheduled.track_programs[i]:compile()
-        graph_units[i] = scheduled.track_programs[i].device_graph:compile()
+        local tp = scheduled.track_programs[i]
+        track_units[i] = tp:compile()
+        graph_units[i] = tp.device_graph:compile()
         track_ptrs[i] = ptr(track_units[i].fn)
         graph_ptrs[i] = ptr(graph_units[i].fn)
+
+        node_programs[i] = {}
+        node_units[i] = {}
+        node_ptrs[i] = {}
+        for j = 1, #tp.device_graph.node_programs do
+            node_programs[i][j] = tp.device_graph.node_programs[j]
+            node_units[i][j] = tp.device_graph.node_programs[j]:compile()
+            node_ptrs[i][j] = ptr(node_units[i][j].fn)
+        end
+
+        mix_programs[i] = {}
+        mix_units[i] = {}
+        mix_ptrs[i] = {}
+        for j = 1, #tp.mix_programs do
+            mix_programs[i][j] = tp.mix_programs[j]
+            mix_units[i][j] = tp.mix_programs[j]:compile()
+            mix_ptrs[i][j] = ptr(mix_units[i][j].fn)
+        end
+
+        output_programs[i] = {}
+        output_units[i] = {}
+        output_ptrs[i] = {}
+        for j = 1, #tp.output_programs do
+            output_programs[i][j] = tp.output_programs[j]
+            output_units[i][j] = tp.output_programs[j]:compile()
+            output_ptrs[i][j] = ptr(output_units[i][j].fn)
+        end
     end
 
     return {
@@ -91,10 +130,61 @@ local function snapshot(project)
         graph_units = graph_units,
         track_ptrs = track_ptrs,
         graph_ptrs = graph_ptrs,
+        node_programs = node_programs,
+        node_units = node_units,
+        node_ptrs = node_ptrs,
+        mix_programs = mix_programs,
+        mix_units = mix_units,
+        mix_ptrs = mix_ptrs,
+        output_programs = output_programs,
+        output_units = output_units,
+        output_ptrs = output_ptrs,
     }
 end
 
-print("1. Same project twice => full memoize reuse")
+local function check_node_reuse(a, b, track_index, label)
+    for j = 1, #a.node_programs[track_index] do
+        check(a.node_programs[track_index][j] == b.node_programs[track_index][j],
+            label .. " node program " .. j .. " reused")
+        check(a.node_units[track_index][j] == b.node_units[track_index][j],
+            label .. " node unit " .. j .. " reused")
+        check(a.node_ptrs[track_index][j] == b.node_ptrs[track_index][j],
+            label .. " node fn ptr " .. j .. " reused")
+    end
+end
+
+local function check_mix_reuse(a, b, track_index, label)
+    for j = 1, #a.mix_programs[track_index] do
+        check(a.mix_programs[track_index][j] == b.mix_programs[track_index][j],
+            label .. " mix program " .. j .. " reused")
+        check(a.mix_units[track_index][j] == b.mix_units[track_index][j],
+            label .. " mix unit " .. j .. " reused")
+        check(a.mix_ptrs[track_index][j] == b.mix_ptrs[track_index][j],
+            label .. " mix fn ptr " .. j .. " reused")
+    end
+end
+
+local function check_output_reuse(a, b, track_index, label)
+    for j = 1, #a.output_programs[track_index] do
+        check(a.output_programs[track_index][j] == b.output_programs[track_index][j],
+            label .. " output program " .. j .. " reused")
+        check(a.output_units[track_index][j] == b.output_units[track_index][j],
+            label .. " output unit " .. j .. " reused")
+        check(a.output_ptrs[track_index][j] == b.output_ptrs[track_index][j],
+            label .. " output fn ptr " .. j .. " reused")
+    end
+end
+
+local function check_output_changed(a, b, track_index, label)
+    for j = 1, #a.output_programs[track_index] do
+        check(a.output_programs[track_index][j] ~= b.output_programs[track_index][j],
+            label .. " output program " .. j .. " changed")
+        check(a.output_ptrs[track_index][j] ~= b.output_ptrs[track_index][j],
+            label .. " output fn ptr " .. j .. " changed")
+    end
+end
+
+print("1. Same project twice => full memoize reuse down to leaf program units")
 do
     local project = make_project(64)
     local a = snapshot(project)
@@ -115,11 +205,14 @@ do
         check(a.graph_units[i] == b.graph_units[i], "graph unit " .. i .. " reused")
         check(a.track_ptrs[i] == b.track_ptrs[i], "track unit fn ptr " .. i .. " reused")
         check(a.graph_ptrs[i] == b.graph_ptrs[i], "graph unit fn ptr " .. i .. " reused")
+        check_node_reuse(a, b, i, "track " .. i)
+        check_mix_reuse(a, b, i, "track " .. i)
+        check_output_reuse(a, b, i, "track " .. i)
     end
     print("  PASS")
 end
 
-print("2. Track volume edit => only affected track program recompiles")
+print("2. Track volume edit => mixer recompiles, graph/node leaves stay cached")
 do
     local base = make_project(64)
     local before = snapshot(base)
@@ -135,6 +228,9 @@ do
     check(before.scheduled.track_programs[2] == after.scheduled.track_programs[2], "scheduled track program 2 reused")
     check(before.track_ptrs[2] == after.track_ptrs[2], "track 2 fn ptr reused")
     check(before.graph_ptrs[2] == after.graph_ptrs[2], "track 2 graph fn ptr reused")
+    check_node_reuse(before, after, 2, "track 2")
+    check_mix_reuse(before, after, 2, "track 2")
+    check_output_reuse(before, after, 2, "track 2")
 
     check(before.authored.tracks[1] ~= after.authored.tracks[1], "authored track 1 changed")
     check(before.resolved.track_slices[1] ~= after.resolved.track_slices[1], "resolved track slice 1 changed")
@@ -145,11 +241,14 @@ do
     check(before.scheduled.track_programs[1].device_graph == after.scheduled.track_programs[1].device_graph,
         "track 1 graph program reused on mixer-only edit")
     check(before.graph_ptrs[1] == after.graph_ptrs[1], "track 1 graph fn ptr reused on mixer-only edit")
+    check_node_reuse(before, after, 1, "track 1")
+    check_mix_reuse(before, after, 1, "track 1")
+    check_output_changed(before, after, 1, "track 1")
     check(before.render_ptr ~= after.render_ptr, "top render fn changed")
     print("  PASS")
 end
 
-print("3. Device param edit => affected graph program recompiles, sibling stays cached")
+print("3. Device param edit => affected track/graph recompiles, sibling track leaves stay cached")
 do
     local base = make_project(64)
     local before = snapshot(base)
@@ -159,12 +258,22 @@ do
     check(edited.tracks[2] == base.tracks[2], "untouched editor track shared")
     check(before.track_ptrs[2] == after.track_ptrs[2], "track 2 fn ptr reused")
     check(before.graph_ptrs[2] == after.graph_ptrs[2], "track 2 graph fn ptr reused")
+    check_node_reuse(before, after, 2, "track 2")
+    check_mix_reuse(before, after, 2, "track 2")
+    check_output_reuse(before, after, 2, "track 2")
 
     check(before.scheduled.track_programs[1] ~= after.scheduled.track_programs[1], "track 1 program changed")
     check(before.track_ptrs[1] ~= after.track_ptrs[1], "track 1 fn ptr changed")
     check(before.scheduled.track_programs[1].device_graph ~= after.scheduled.track_programs[1].device_graph,
         "track 1 graph program changed")
     check(before.graph_ptrs[1] ~= after.graph_ptrs[1], "track 1 graph fn ptr changed")
+    check(before.node_programs[1][1] == after.node_programs[1][1], "track 1 node program 1 reused")
+    check(before.node_units[1][1] == after.node_units[1][1], "track 1 node unit 1 reused")
+    check(before.node_ptrs[1][1] == after.node_ptrs[1][1], "track 1 node fn ptr 1 reused")
+    check(before.node_programs[1][2] ~= after.node_programs[1][2], "track 1 node program 2 changed")
+    check(before.node_ptrs[1][2] ~= after.node_ptrs[1][2], "track 1 node fn ptr 2 changed")
+    check_mix_reuse(before, after, 1, "track 1")
+    check_output_reuse(before, after, 1, "track 1")
     check(before.render_ptr ~= after.render_ptr, "top render fn changed")
     print("  PASS")
 end
@@ -193,6 +302,79 @@ do
     check(before.track_ptrs[1] ~= after.track_ptrs[1], "track 1 fn ptr changed")
     check(before.track_ptrs[2] ~= after.track_ptrs[2], "track 2 fn ptr changed")
     check(before.render_ptr ~= after.render_ptr, "top render fn changed")
+    print("  PASS")
+end
+
+print("5. Session undo restores original hot path and leaf units")
+do
+    local project = make_project(64)
+    local s = session.new(project):compile()
+    local before = snapshot(s.project)
+    local before_render = ptr(s.render_fn)
+
+    s:set_track_volume(1, 0.4)
+    local edited = snapshot(s.project)
+
+    s:undo()
+    local undone = snapshot(s.project)
+    local undone_render = ptr(s.render_fn)
+
+    check(s.project == project, "undo restored original project object")
+    check(before.render_ptr == undone.render_ptr, "undo restored project render ptr")
+    check(before_render == undone_render, "undo restored live session render ptr")
+    check(before.track_ptrs[1] == undone.track_ptrs[1], "undo restored track 1 fn ptr")
+    check(before.track_ptrs[2] == undone.track_ptrs[2], "undo restored track 2 fn ptr")
+    check(before.graph_ptrs[1] == undone.graph_ptrs[1], "undo restored track 1 graph fn ptr")
+    check(before.graph_ptrs[2] == undone.graph_ptrs[2], "undo restored track 2 graph fn ptr")
+    check_node_reuse(before, undone, 1, "undo track 1")
+    check_node_reuse(before, undone, 2, "undo track 2")
+    check_mix_reuse(before, undone, 1, "undo track 1")
+    check_mix_reuse(before, undone, 2, "undo track 2")
+    check_output_reuse(before, undone, 1, "undo track 1")
+    check_output_reuse(before, undone, 2, "undo track 2")
+    check(edited.render_ptr ~= undone.render_ptr, "undo diverged from edited render ptr")
+    print("  PASS")
+end
+
+print("6. Session redo restores edited hot path and leaf units")
+do
+    local project = make_project(64)
+    local s = session.new(project):compile()
+    s:set_track_volume(1, 0.4)
+    local edited = snapshot(s.project)
+    local edited_render = ptr(s.render_fn)
+
+    s:undo()
+    s:redo()
+    local redone = snapshot(s.project)
+    local redone_render = ptr(s.render_fn)
+
+    check(redone.render_ptr == edited.render_ptr, "redo restored project render ptr")
+    check(redone_render == edited_render, "redo restored live session render ptr")
+    check(redone.track_ptrs[1] == edited.track_ptrs[1], "redo restored track 1 fn ptr")
+    check(redone.track_ptrs[2] == edited.track_ptrs[2], "redo restored track 2 fn ptr")
+    check(redone.graph_ptrs[1] == edited.graph_ptrs[1], "redo restored track 1 graph fn ptr")
+    check(redone.graph_ptrs[2] == edited.graph_ptrs[2], "redo restored track 2 graph fn ptr")
+    check_node_reuse(edited, redone, 1, "redo track 1")
+    check_node_reuse(edited, redone, 2, "redo track 2")
+    check_mix_reuse(edited, redone, 1, "redo track 1")
+    check_mix_reuse(edited, redone, 2, "redo track 2")
+    check_output_reuse(edited, redone, 1, "redo track 1")
+    check_output_reuse(edited, redone, 2, "redo track 2")
+    print("  PASS")
+end
+
+print("7. Same-value session edit is a no-op")
+do
+    local project = make_project(64)
+    local s = session.new(project):compile()
+    local before_project = s.project
+    local before_render = ptr(s.render_fn)
+
+    s:set_track_volume(1, 0.8)
+
+    check(s.project == before_project, "same-value edit preserved project identity")
+    check(ptr(s.render_fn) == before_render, "same-value edit preserved render fn ptr")
     print("  PASS")
 end
 

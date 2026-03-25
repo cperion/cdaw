@@ -646,16 +646,71 @@ function F.scheduled_node_job(node_id)
     )
 end
 
+function F.scheduled_node_program(node_id)
+    return D.Scheduled.NodeProgram(
+        F.scheduled_node_job(node_id),
+        L(),
+        L(),
+        L(),
+        L(),
+        L(),
+        F.scheduled_transport(),
+        F.scheduled_tempo_map()
+    )
+end
+
+function F.scheduled_mod_program()
+    return D.Scheduled.ModProgram(
+        D.Scheduled.ModJob(0, 0, 0, 0, 0, 0, 0, 0, 0, false, 0, 0, 0, 0, 0, F.scheduled_binding(0, 0)),
+        L(),
+        L(),
+        F.scheduled_transport(),
+        F.scheduled_tempo_map()
+    )
+end
+
+function F.scheduled_clip_program()
+    return D.Scheduled.ClipProgram(
+        D.Scheduled.ClipJob(0, 0, 0, 0, 0, 0, 0, F.scheduled_binding(0, 0), false, 0, 0, 0, 0),
+        L(),
+        F.scheduled_transport(),
+        F.scheduled_tempo_map()
+    )
+end
+
+function F.scheduled_send_program()
+    return D.Scheduled.SendProgram(
+        D.Scheduled.SendJob(0, 0, F.scheduled_binding(0, 0), false, false),
+        L(),
+        F.scheduled_transport(),
+        F.scheduled_tempo_map()
+    )
+end
+
+function F.scheduled_mix_program()
+    return D.Scheduled.MixProgram(
+        D.Scheduled.MixJob(0, 0, F.scheduled_binding(0, 0)),
+        L(),
+        F.scheduled_transport(),
+        F.scheduled_tempo_map()
+    )
+end
+
+function F.scheduled_output_program()
+    return D.Scheduled.OutputProgram(
+        D.Scheduled.OutputJob(0, 0, 0, F.scheduled_binding(0, 0), F.scheduled_binding(0, 0)),
+        L(),
+        F.scheduled_transport(),
+        F.scheduled_tempo_map()
+    )
+end
+
 function F.scheduled_graph_program(graph_id)
     return D.Scheduled.GraphProgram(
         F.scheduled_transport(),
         F.scheduled_tempo_map(),
         L(),
         F.scheduled_graph_plan(graph_id),
-        L(),
-        L(),
-        L(),
-        L(),
         L(),
         L(),
         L(),
@@ -675,10 +730,7 @@ function F.scheduled_track_program(track_id)
         F.scheduled_tempo_map(),
         L(),
         F.scheduled_track_plan(track_id),
-        L(),
         F.scheduled_graph_program(0),
-        L(),
-        L(),
         L(),
         L(),
         L(),

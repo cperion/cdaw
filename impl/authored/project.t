@@ -8,8 +8,6 @@ local L = F.L
 
 diag.status("authored.project.resolve", "real")
 
-local DEFAULT_TICKS_PER_BEAT = 960
-
 local resolve_project = terralib.memoize(function(self, ticks_per_beat)
     local sample_rate = (self.transport and self.transport.sample_rate) or 44100
     local transport = self.transport:resolve(ticks_per_beat)
@@ -29,10 +27,7 @@ local resolve_project = terralib.memoize(function(self, ticks_per_beat)
 end)
 
 function D.Authored.Project:resolve(ticks_per_beat)
-    if type(ticks_per_beat) == "table" then
-        ticks_per_beat = ticks_per_beat.ticks_per_beat
-    end
-    ticks_per_beat = type(ticks_per_beat) == "number" and ticks_per_beat or DEFAULT_TICKS_PER_BEAT
+    assert(type(ticks_per_beat) == "number", "Authored.Project:resolve requires explicit number ticks_per_beat")
 
     return diag.wrap(nil, "authored.project.resolve", "real", function()
         return resolve_project(self, ticks_per_beat)

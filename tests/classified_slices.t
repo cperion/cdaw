@@ -35,7 +35,7 @@ do
     )
     local gp = gs:schedule(F.classified_transport(), F.classified_tempo_map())
     check(gp.graph.graph_id == 1, "graph id")
-    check(#gp.node_jobs == 1, "1 node job")
+    check(#gp.node_programs == 1, "1 node program")
     check(#gp.literals == 1, "1 literal")
     print("  PASS")
 end

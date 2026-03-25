@@ -95,6 +95,7 @@ Goal: editing, UI projection, persistence, and runtime control all connect.
 Current immediate focus after the slice/program/unit refactor:
 
 - [x] remove remaining non-schema public helper methods on raw scheduled job/data records where they are no longer needed
+- [x] model leaf scheduled compile units explicitly (`NodeProgram`, `ModProgram`, `ClipProgram`, `SendProgram`, `MixProgram`, `OutputProgram`)
 - [ ] deepen `Kernel.API` beyond the render entry surface
 - [x] rewrite View `to_decl()` boundaries to the same no-opaque-ctx purity rule
 
@@ -111,12 +112,14 @@ These are already present and should stay green while deeper work lands.
 - [x] Classified → Scheduled scheduling works for basic node/track execution
 - [x] Scheduled → Kernel compilation produces callable Terra render functions
 - [x] Public phase boundaries are pure/no-opaque-ctx through `View → TerraUI` and `Scheduled → Kernel`
-- [x] ASDL surface now models reusable late-phase slices/programs (`TrackSlice`, `GraphSlice`, `TrackProgram`, `GraphProgram`, `Kernel.Unit`)
+- [x] ASDL surface now models reusable late-phase slices/programs (`TrackSlice`, `GraphSlice`, leaf scheduled `*Program` units, `TrackProgram`, `GraphProgram`, `Kernel.Unit`)
 - [x] Core compiler pipeline implementations now match the redesigned slice/program/unit ASDL surface
 - [x] View `to_decl()` boundaries now follow the same no-opaque-ctx rule
 - [x] First audible output works (`tests/first_sound.t`)
 - [x] SDL audio demo plays compiled output (`app/demo_audio.t`)
 - [x] Basic session compile / play / undo / redo loop exists (`app/session.t`)
+- [x] Memoize/incremental proof tests cover leaf units plus undo/redo hot-swap (`tests/memoize_incremental.t`, `tools/incremental_memoize_probe.t`)
+- [x] Device edits now preserve unaffected node leaf-unit reuse inside a changed graph, and unaffected mix/output leaf-unit reuse inside the changed track shell
 - [x] Broad View → TerraUI lowering exists for shell/workspace surfaces
 - [x] Method-level progress tool is green (`tools/progress.t`)
 - [x] Variant-level progress axis exists in `tools/progress.t`

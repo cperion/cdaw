@@ -5,6 +5,7 @@ local D = require("daw-unified")
 require("impl/init")
 local F = require("impl/_support/fallbacks")
 local L = F.L
+local TICKS_PER_BEAT = 960
 
 local function sum_track_slices(track_slices, field_path)
     local total = 0
@@ -40,9 +41,9 @@ local function total_scheduled_buffers(scheduled)
     return total
 end
 
-local function total_scheduled_node_jobs(scheduled)
+local function total_scheduled_node_programs(scheduled)
     local total = 0
-    for i = 1, #scheduled.track_programs do total = total + #scheduled.track_programs[i].device_graph.node_jobs end
+    for i = 1, #scheduled.track_programs do total = total + #scheduled.track_programs[i].device_graph.node_programs end
     return total
 end
 
@@ -114,7 +115,7 @@ for i = 1, #authored.tracks do
         i, t.name, #t.device_graph.nodes, tostring(t.device_graph.layout.kind or t.device_graph.layout)))
 end
 
-local resolved = authored:resolve()
+local resolved = authored:resolve(TICKS_PER_BEAT)
 local resolved_graphs = sum_track_slices(resolved.track_slices, "device_graph.graphs")
 local resolved_nodes = sum_track_slices(resolved.track_slices, "device_graph.nodes")
 local resolved_params = sum_track_slices(resolved.track_slices, "mixer_params") + sum_track_slices(resolved.track_slices, "device_graph.params")
@@ -190,11 +191,11 @@ local scheduled = classified:schedule()
 print("\n── Phase 4: Classified → Scheduled (program allocation) ──")
 print(string.format("  Track programs: %d", #scheduled.track_programs))
 print(string.format("  Aggregate buffers: %d", total_scheduled_buffers(scheduled)))
-print(string.format("  Aggregate node jobs: %d", total_scheduled_node_jobs(scheduled)))
+print(string.format("  Aggregate node programs: %d", total_scheduled_node_programs(scheduled)))
 for i = 1, #scheduled.track_programs do
     local tp = scheduled.track_programs[i]
-    print(string.format("    TrackProgram %d: track=%d work=buf[%d] outL=buf[%d] outR=buf[%d] node_jobs=%d",
-        i, tp.track.track_id, tp.track.work_buf, tp.master_left, tp.master_right, #tp.device_graph.node_jobs))
+    print(string.format("    TrackProgram %d: track=%d work=buf[%d] outL=buf[%d] outR=buf[%d] node_programs=%d",
+        i, tp.track.track_id, tp.track.work_buf, tp.master_left, tp.master_right, #tp.device_graph.node_programs))
 end
 
 print("\n── Phase 5: Scheduled → Kernel (Terra code generation) ──")

@@ -5,6 +5,7 @@ local D = require("daw-unified")
 require("impl/init")
 local F = require("impl/_support/fallbacks")
 local L = F.L
+local TICKS_PER_BEAT = 960
 
 local pass, fail = 0, 0
 local function check(c, m) if c then pass=pass+1 else fail=fail+1; print("  FAIL: "..m) end end
@@ -60,7 +61,7 @@ do
             L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
-    local tp = project:lower():resolve():classify():schedule().track_programs[1]
+    local tp = project:lower():resolve(TICKS_PER_BEAT):classify():schedule().track_programs[1]
     local unit = tp:compile()
     local outL = terralib.new(float[64])
     local outR = terralib.new(float[64])
@@ -90,7 +91,7 @@ do
         },
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
-    local kernel = project:lower():resolve():classify():schedule():compile()
+    local kernel = project:lower():resolve(TICKS_PER_BEAT):classify():schedule():compile()
     local outL = terralib.new(float[64])
     local outR = terralib.new(float[64])
     kernel:entry_fn()(outL, outR, 64)
@@ -114,7 +115,7 @@ do
             L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
-    local tp = project:lower():resolve():classify():schedule().track_programs[1]
+    local tp = project:lower():resolve(TICKS_PER_BEAT):classify():schedule().track_programs[1]
     check(#tp.mixer_block_ops >= 1, "mixer block ops present")
     check(#tp.mixer_block_pts >= 2, "mixer block points present")
     check(tp:compile() ~= nil, "track program compiles")

@@ -44,60 +44,58 @@ module Scheduled {
 
     -- TrackProgram is the reusable compilation unit for one scheduled track.
     -- It contains everything needed to compile that track into a stable
-    -- Kernel.Unit without consulting project-global job tables.
+    -- Kernel.Unit without consulting project-global job tables. Leaf reusable
+    -- units are explicit: clip/send/mix/output programs plus the device graph
+    -- program are composed here rather than recompiled through raw job tables.
     TrackProgram = (
-        Scheduled.Transport   transport,
-        Scheduled.TempoMap    tempo_map,
-        Scheduled.Buffer*     buffers,
-        Scheduled.TrackPlan   track,
-        Scheduled.Step*       steps,
+        Scheduled.Transport    transport,
+        Scheduled.TempoMap     tempo_map,
+        Scheduled.Buffer*      buffers,
+        Scheduled.TrackPlan    track,
         Scheduled.GraphProgram device_graph,
-        Scheduled.SendJob*    send_jobs,
-        Scheduled.MixJob*     mix_jobs,
-        Scheduled.OutputJob*  output_jobs,
-        Scheduled.ClipJob*    clip_jobs,
-        Scheduled.ModJob*     mod_jobs,
+        Scheduled.ClipProgram* clip_programs,
+        Scheduled.SendProgram* send_programs,
+        Scheduled.MixProgram*  mix_programs,
+        Scheduled.OutputProgram* output_programs,
         Scheduled.LaunchEntry* launch_entries,
-        Scheduled.Param*      mixer_params,
-        Scheduled.Binding*    mixer_param_bindings,
-        Scheduled.Literal*    mixer_literals,
-        Scheduled.InitOp*     mixer_init_ops,
-        Scheduled.BlockOp*    mixer_block_ops,
-        Scheduled.BlockPt*    mixer_block_pts,
-        Scheduled.SampleOp*   mixer_sample_ops,
-        Scheduled.EventOp*    mixer_event_ops,
-        Scheduled.VoiceOp*    mixer_voice_ops,
-        number                total_buffers,
-        number                total_state_slots,
-        number                master_left,
-        number                master_right
+        Scheduled.Param*       mixer_params,
+        Scheduled.Binding*     mixer_param_bindings,
+        Scheduled.Literal*     mixer_literals,
+        Scheduled.InitOp*      mixer_init_ops,
+        Scheduled.BlockOp*     mixer_block_ops,
+        Scheduled.BlockPt*     mixer_block_pts,
+        Scheduled.SampleOp*    mixer_sample_ops,
+        Scheduled.EventOp*     mixer_event_ops,
+        Scheduled.VoiceOp*     mixer_voice_ops,
+        number                 total_buffers,
+        number                 total_state_slots,
+        number                 master_left,
+        number                 master_right
     ) unique
     methods {
         compile() -> Kernel.Unit
     }
 
     -- GraphProgram is the reusable compilation unit for one scheduled graph
-    -- subtree. It owns its node jobs, control tables, and local buffer/state
-    -- requirements.
+    -- subtree. Leaf reusable units are explicit: node and mod programs own the
+    -- compile boundary; GraphProgram composes them with graph-local control
+    -- storage and buffer/state requirements.
     GraphProgram = (
-        Scheduled.Transport   transport,
-        Scheduled.TempoMap    tempo_map,
-        Scheduled.Buffer*     buffers,
-        Scheduled.GraphPlan   graph,
-        Scheduled.NodeJob*    node_jobs,
-        Scheduled.Param*      params,
-        Scheduled.ModSlot*    mod_slots,
-        Scheduled.ModRoute*   mod_routes,
-        Scheduled.Binding*    param_bindings,
-        Scheduled.Literal*    literals,
-        Scheduled.InitOp*     init_ops,
-        Scheduled.BlockOp*    block_ops,
-        Scheduled.BlockPt*    block_pts,
-        Scheduled.SampleOp*   sample_ops,
-        Scheduled.EventOp*    event_ops,
-        Scheduled.VoiceOp*    voice_ops,
-        number                total_buffers,
-        number                total_state_slots
+        Scheduled.Transport    transport,
+        Scheduled.TempoMap     tempo_map,
+        Scheduled.Buffer*      buffers,
+        Scheduled.GraphPlan    graph,
+        Scheduled.NodeProgram* node_programs,
+        Scheduled.ModProgram*  mod_programs,
+        Scheduled.Literal*     literals,
+        Scheduled.InitOp*      init_ops,
+        Scheduled.BlockOp*     block_ops,
+        Scheduled.BlockPt*     block_pts,
+        Scheduled.SampleOp*    sample_ops,
+        Scheduled.EventOp*     event_ops,
+        Scheduled.VoiceOp*     voice_ops,
+        number                 total_buffers,
+        number                 total_state_slots
     ) unique
     methods {
         compile() -> Kernel.Unit
@@ -137,6 +135,20 @@ module Scheduled {
         number arg0, number arg1, number arg2, number arg3
     )
 
+    NodeProgram = (
+        Scheduled.NodeJob    node,
+        Scheduled.Binding*   param_bindings,
+        Scheduled.Param*     params,
+        Scheduled.ModSlot*   mod_slots,
+        Scheduled.ModRoute*  mod_routes,
+        Scheduled.Literal*   literals,
+        Scheduled.Transport  transport,
+        Scheduled.TempoMap   tempo_map
+    ) unique
+    methods {
+        compile() -> Kernel.Unit
+    }
+
     ClipJob = (
         number clip_id, number content_kind, number asset_id,
         number out_buf, number start_tick, number end_tick,
@@ -146,6 +158,16 @@ module Scheduled {
         number fade_in_tick, number fade_in_curve_code,
         number fade_out_tick, number fade_out_curve_code
     )
+
+    ClipProgram = (
+        Scheduled.ClipJob    clip,
+        Scheduled.Literal*   literals,
+        Scheduled.Transport  transport,
+        Scheduled.TempoMap   tempo_map
+    ) unique
+    methods {
+        compile() -> Kernel.Unit
+    }
 
     ModJob = (
         number mod_node_id, number parent_node_id,
@@ -159,18 +181,59 @@ module Scheduled {
         Scheduled.Binding output
     )
 
+    ModProgram = (
+        Scheduled.ModJob     mod,
+        Scheduled.Binding*   param_bindings,
+        Scheduled.Literal*   literals,
+        Scheduled.Transport  transport,
+        Scheduled.TempoMap   tempo_map
+    ) unique
+    methods {
+        compile() -> Kernel.Unit
+    }
+
     SendJob = (
         number source_buf, number target_buf,
         Scheduled.Binding level,
         boolean pre_fader, boolean enabled
     )
 
+    SendProgram = (
+        Scheduled.SendJob    send,
+        Scheduled.Literal*   literals,
+        Scheduled.Transport  transport,
+        Scheduled.TempoMap   tempo_map
+    ) unique
+    methods {
+        compile() -> Kernel.Unit
+    }
+
     MixJob = (number source_buf, number target_buf, Scheduled.Binding gain)
+
+    MixProgram = (
+        Scheduled.MixJob     mix,
+        Scheduled.Literal*   literals,
+        Scheduled.Transport  transport,
+        Scheduled.TempoMap   tempo_map
+    ) unique
+    methods {
+        compile() -> Kernel.Unit
+    }
 
     OutputJob = (
         number source_buf, number out_left, number out_right,
         Scheduled.Binding gain, Scheduled.Binding pan
     )
+
+    OutputProgram = (
+        Scheduled.OutputJob  output,
+        Scheduled.Literal*   literals,
+        Scheduled.Transport  transport,
+        Scheduled.TempoMap   tempo_map
+    ) unique
+    methods {
+        compile() -> Kernel.Unit
+    }
 
     LaunchEntry = (
         number track_id, number slot_index,

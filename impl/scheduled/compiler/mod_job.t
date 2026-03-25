@@ -6,8 +6,7 @@ local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local compile_binding_value = require("impl/scheduled/compiler/binding")
 local L = F.L
-diag.status("scheduled.mod_job.compile", "partial")
-diag.variant_family("scheduled.mod_job.compile", "Authored", "NodeKind")
+diag.status("scheduled.mod_job.quote", "partial")
 
 local C = terralib.includec("math.h")
 
@@ -15,24 +14,12 @@ local NK = {
     LFOMod = 156,
 }
 
-for member in pairs(D.Authored.NodeKind.members) do
-    if type(member) == "table" and member ~= D.Authored.NodeKind then
-        local name = rawget(member, "kind")
-        if type(name) == "string" then
-            diag.variant_status("scheduled.mod_job.compile", name, "stub")
-        end
-    end
-end
-for _, name in ipairs({"LFOMod"}) do
-    diag.variant_status("scheduled.mod_job.compile", name, "real")
-end
-
 local function get_param_binding(param_bindings, first_param, index)
     return param_bindings[first_param + index + 1]
 end
 
 local function compile_with(self, ctx)
-    return diag.wrap(ctx, "scheduled.mod_job.compile", "partial", function()
+    return diag.wrap(ctx, "scheduled.mod_job.quote", "partial", function()
         assert(ctx and ctx.sample_slots_sym, "ModJob:compile requires ctx.sample_slots_sym")
 
         local sample_slots = ctx.sample_slots_sym

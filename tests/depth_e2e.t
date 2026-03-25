@@ -5,6 +5,7 @@ local D = require("daw-unified")
 require("impl/init")
 local F = require("impl/_support/fallbacks")
 local L = F.L
+local TICKS_PER_BEAT = 960
 
 local pass_count = 0
 local fail_count = 0
@@ -47,15 +48,15 @@ local function total_scheduled_buffers(scheduled)
     return total
 end
 
-local function total_scheduled_node_jobs(scheduled)
+local function total_scheduled_node_programs(scheduled)
     local total = 0
-    for i = 1, #scheduled.track_programs do total = total + #scheduled.track_programs[i].device_graph.node_jobs end
+    for i = 1, #scheduled.track_programs do total = total + #scheduled.track_programs[i].device_graph.node_programs end
     return total
 end
 
-local function total_scheduled_steps(scheduled)
+local function total_scheduled_output_programs(scheduled)
     local total = 0
-    for i = 1, #scheduled.track_programs do total = total + #scheduled.track_programs[i].steps end
+    for i = 1, #scheduled.track_programs do total = total + #scheduled.track_programs[i].output_programs end
     return total
 end
 
@@ -77,7 +78,7 @@ do
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
 
-    local classified = project:lower():resolve():classify()
+    local classified = project:lower():resolve(TICKS_PER_BEAT):classify()
     local literal_count = total_classified_literals(classified)
     check(literal_count > 0, "non-empty classified literal tables")
     print("  Literal count: " .. literal_count)
@@ -103,11 +104,11 @@ do
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
 
-    local scheduled = project:lower():resolve():classify():schedule()
+    local scheduled = project:lower():resolve(TICKS_PER_BEAT):classify():schedule()
     check(#scheduled.track_programs > 0, "track programs exist")
     check(total_scheduled_buffers(scheduled) > 0, "buffers allocated")
-    check(total_scheduled_node_jobs(scheduled) > 0, "node jobs exist")
-    check(total_scheduled_steps(scheduled) > 0, "steps exist")
+    check(total_scheduled_node_programs(scheduled) > 0, "node programs exist")
+    check(total_scheduled_output_programs(scheduled) > 0, "output programs exist")
     local tp = scheduled.track_programs[1]
     check(tp.track.work_buf >= 0, "track work_buf valid")
     check(tp.master_left >= 0 and tp.master_right >= 0, "master buffers valid")
@@ -133,7 +134,7 @@ do
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
 
-    local kernel = project:lower():resolve():classify():schedule():compile()
+    local kernel = project:lower():resolve(TICKS_PER_BEAT):classify():schedule():compile()
     local entry = kernel:entry_fn()
     check(entry ~= nil, "entry_fn should not be nil")
     check(type(entry) == "function" or terralib.isfunction(entry), "entry should be callable")
@@ -174,7 +175,7 @@ do
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 140)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
 
-    local resolved = project:lower():resolve()
+    local resolved = project:lower():resolve(TICKS_PER_BEAT)
     local classified = resolved:classify()
     local scheduled = classified:schedule()
 
@@ -189,11 +190,11 @@ do
     check(resolved_params >= 7, "at least 7 resolved params")
     check(total_classified_literals(classified) >= 2, "classified literals populated")
     check(#scheduled.track_programs == 2, "2 track programs")
-    check(total_scheduled_node_jobs(scheduled) == 2, "2 scheduled node jobs")
+    check(total_scheduled_node_programs(scheduled) == 2, "2 scheduled node programs")
 
     print("  Resolved: " .. resolved_graphs .. " graphs, " .. resolved_nodes .. " nodes, " .. resolved_params .. " params")
     print("  Classified: " .. total_classified_literals(classified) .. " literals")
-    print("  Scheduled: " .. total_scheduled_buffers(scheduled) .. " buffers, " .. total_scheduled_node_jobs(scheduled) .. " node_jobs, " .. total_scheduled_steps(scheduled) .. " steps")
+    print("  Scheduled: " .. total_scheduled_buffers(scheduled) .. " buffers, " .. total_scheduled_node_programs(scheduled) .. " node_programs, " .. total_scheduled_output_programs(scheduled) .. " output_programs")
     print("  PASS")
 end
 
@@ -217,7 +218,7 @@ do
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
 
-    local resolved = project:lower():resolve()
+    local resolved = project:lower():resolve(TICKS_PER_BEAT)
     local classified = resolved:classify()
     local scheduled = classified:schedule()
     local ts = classified.track_slices[1]

@@ -7,12 +7,6 @@ local D = require("daw-unified")
 local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local compile_binding_value = require("impl/scheduled/compiler/binding")
-local compile_node_job = require("impl/scheduled/compiler/node_job")
-local compile_clip_job = require("impl/scheduled/compiler/clip_job")
-local compile_mod_job = require("impl/scheduled/compiler/mod_job")
-local compile_send_job = require("impl/scheduled/compiler/send_job")
-local compile_mix_job = require("impl/scheduled/compiler/mix_job")
-local compile_output_job = require("impl/scheduled/compiler/output_job")
 local L = F.L
 
 diag.status("scheduled.graph_program.compile", "real")
@@ -141,9 +135,17 @@ end
 local function graph_runtime_slot_counts(self)
     local counts = { [1] = 0, [2] = 0, [3] = 0, [4] = 0, [5] = 0 }
 
-    for i = 1, #self.param_bindings do scan_binding(self.param_bindings[i], counts) end
-    for i = 1, #self.mod_slots do scan_binding(self.mod_slots[i].output_binding, counts) end
-    for i = 1, #self.mod_routes do scan_binding(self.mod_routes[i].depth, counts) end
+    for i = 1, #self.mod_programs do
+        local mp = self.mod_programs[i]
+        for j = 1, #(mp.param_bindings or L()) do scan_binding(mp.param_bindings[j], counts) end
+        scan_binding(mp.mod.output, counts)
+    end
+    for i = 1, #self.node_programs do
+        local np = self.node_programs[i]
+        for j = 1, #(np.param_bindings or L()) do scan_binding(np.param_bindings[j], counts) end
+        for j = 1, #(np.mod_slots or L()) do scan_binding(np.mod_slots[j].output_binding, counts) end
+        for j = 1, #(np.mod_routes or L()) do scan_binding(np.mod_routes[j].depth, counts) end
+    end
 
     for i = 1, #self.init_ops do
         scan_binding(self.init_ops[i].i0, counts)
@@ -183,13 +185,13 @@ local function track_runtime_slot_counts(self)
     for i = 1, #self.mixer_param_bindings do scan_binding(self.mixer_param_bindings[i], counts) end
     scan_binding(self.track.volume, counts)
     scan_binding(self.track.pan, counts)
-    for i = 1, #self.send_jobs do scan_binding(self.send_jobs[i].level, counts) end
-    for i = 1, #self.mix_jobs do scan_binding(self.mix_jobs[i].gain, counts) end
-    for i = 1, #self.output_jobs do
-        scan_binding(self.output_jobs[i].gain, counts)
-        scan_binding(self.output_jobs[i].pan, counts)
+    for i = 1, #self.send_programs do scan_binding(self.send_programs[i].send.level, counts) end
+    for i = 1, #self.mix_programs do scan_binding(self.mix_programs[i].mix.gain, counts) end
+    for i = 1, #self.output_programs do
+        scan_binding(self.output_programs[i].output.gain, counts)
+        scan_binding(self.output_programs[i].output.pan, counts)
     end
-    for i = 1, #self.clip_jobs do scan_binding(self.clip_jobs[i].gain, counts) end
+    for i = 1, #self.clip_programs do scan_binding(self.clip_programs[i].clip.gain, counts) end
 
     for i = 1, #self.mixer_init_ops do
         scan_binding(self.mixer_init_ops[i].i0, counts)
@@ -246,7 +248,7 @@ local compile_graph_program = terralib.memoize(function(self)
     local StateArray = float[state_count]
 
     local graph_fn
-    if #self.node_jobs > 0 or #self.mod_slots > 0 then
+    if #self.node_programs > 0 or #self.mod_programs > 0 then
         local bufs_sym = symbol(&float, "bufs")
         local frames_sym = symbol(int32, "frames")
         local init_slots_sym = symbol(InitArray, "init_slots")
@@ -264,10 +266,6 @@ local compile_graph_program = terralib.memoize(function(self)
             literal_values = literal_values,
             block_tick = 0,
             block_sample = eval_tick_to_sample(self.tempo_map, 0),
-            param_bindings = self.param_bindings,
-            param_meta = self.params,
-            mod_slots = self.mod_slots,
-            mod_routes = self.mod_routes,
             bufs_sym = bufs_sym,
             frames_sym = frames_sym,
             init_slots_sym = init_slots_sym,
@@ -278,32 +276,10 @@ local compile_graph_program = terralib.memoize(function(self)
             state_sym = state_sym,
         }
 
-        ctx.mod_slot_by_index = {}
-        for i = 1, #self.mod_slots do
-            local ms = self.mod_slots[i]
-            ctx.mod_slot_by_index[ms.slot_index] = ms
-        end
-
-        local mod_jobs = {}
-        for i = 1, #self.mod_slots do
-            local ms = self.mod_slots[i]
-            mod_jobs[i] = D.Scheduled.ModJob(
-                ms.modulator_node_id,
-                ms.parent_node_id,
-                ms.modulator_kind_code,
-                ms.first_param,
-                ms.param_count,
-                ms.arg0, ms.arg1, ms.arg2, ms.arg3,
-                ms.per_voice,
-                ms.first_route,
-                ms.route_count,
-                ms.runtime_state_slot,
-                ms.state_size,
-                ms.output_binding.slot,
-                ms.output_binding
-            )
-        end
-        ctx.mod_jobs = mod_jobs
+        local mod_units = {}
+        for i = 1, #self.mod_programs do mod_units[i] = self.mod_programs[i]:compile() end
+        local node_units = {}
+        for i = 1, #self.node_programs do node_units[i] = self.node_programs[i]:compile() end
 
         local body_quotes = terralib.newlist()
         body_quotes:insert(quote
@@ -316,8 +292,14 @@ local compile_graph_program = terralib.memoize(function(self)
             for i = 0, [int32](state_count - 1) do [state_sym][i] = 0.0f end
         end)
         body_quotes:insert(quote [emit_runtime_ops(self, ctx)] end)
-        for i = 1, #mod_jobs do body_quotes:insert(compile_mod_job(mod_jobs[i], ctx)) end
-        for i = 1, #self.node_jobs do body_quotes:insert(compile_node_job(self.node_jobs[i], ctx)) end
+        for i = 1, #mod_units do
+            local fn = mod_units[i].fn
+            body_quotes:insert(quote [fn]([bufs_sym], [frames_sym], &[init_slots_sym][0], &[block_slots_sym][0], &[sample_slots_sym][0], &[event_slots_sym][0], &[voice_slots_sym][0]) end)
+        end
+        for i = 1, #node_units do
+            local fn = node_units[i].fn
+            body_quotes:insert(quote [fn]([bufs_sym], [frames_sym], &[init_slots_sym][0], &[block_slots_sym][0], &[sample_slots_sym][0], &[event_slots_sym][0], &[voice_slots_sym][0]) end)
+        end
 
         graph_fn = terra([bufs_sym], [frames_sym])
             var [init_slots_sym]
@@ -368,7 +350,7 @@ local compile_track_program = terralib.memoize(function(self)
     local master_right_offset = self.master_right * buffer_size
 
     local track_fn
-    if #self.steps > 0 or #self.clip_jobs > 0 or graph_fn ~= nil then
+    if #self.clip_programs > 0 or #self.send_programs > 0 or #self.mix_programs > 0 or #self.output_programs > 0 or graph_fn ~= nil then
         local bufs_sym = symbol(TrackBufArray, "bufs")
         local graph_bufs_sym = symbol(GraphBufArray, "graph_bufs")
         local init_slots_sym = symbol(InitArray, "init_slots")
@@ -423,6 +405,15 @@ local compile_track_program = terralib.memoize(function(self)
             voice_ops = self.mixer_voice_ops,
         }, ctx)] end)
 
+        local clip_units = {}
+        for i = 1, #self.clip_programs do clip_units[i] = self.clip_programs[i]:compile() end
+        local send_units = {}
+        for i = 1, #self.send_programs do send_units[i] = self.send_programs[i]:compile() end
+        local mix_units = {}
+        for i = 1, #self.mix_programs do mix_units[i] = self.mix_programs[i]:compile() end
+        local output_units = {}
+        for i = 1, #self.output_programs do output_units[i] = self.output_programs[i]:compile() end
+
         if graph_fn then
             body_quotes:insert(quote [graph_fn](&[graph_bufs_sym][0], [frames_sym]) end)
             body_quotes:insert(quote
@@ -434,10 +425,22 @@ local compile_track_program = terralib.memoize(function(self)
             end)
         end
 
-        for i = 1, #self.clip_jobs do body_quotes:insert(compile_clip_job(self.clip_jobs[i], ctx)) end
-        for i = 1, #self.send_jobs do body_quotes:insert(compile_send_job(self.send_jobs[i], ctx)) end
-        for i = 1, #self.mix_jobs do body_quotes:insert(compile_mix_job(self.mix_jobs[i], ctx)) end
-        for i = 1, #self.output_jobs do body_quotes:insert(compile_output_job(self.output_jobs[i], ctx)) end
+        for i = 1, #clip_units do
+            local fn = clip_units[i].fn
+            body_quotes:insert(quote [fn](&[bufs_sym][0], [frames_sym], &[init_slots_sym][0], &[block_slots_sym][0], &[sample_slots_sym][0], &[event_slots_sym][0], &[voice_slots_sym][0]) end)
+        end
+        for i = 1, #send_units do
+            local fn = send_units[i].fn
+            body_quotes:insert(quote [fn](&[bufs_sym][0], [frames_sym], &[init_slots_sym][0], &[block_slots_sym][0], &[sample_slots_sym][0], &[event_slots_sym][0], &[voice_slots_sym][0]) end)
+        end
+        for i = 1, #mix_units do
+            local fn = mix_units[i].fn
+            body_quotes:insert(quote [fn](&[bufs_sym][0], [frames_sym], &[init_slots_sym][0], &[block_slots_sym][0], &[sample_slots_sym][0], &[event_slots_sym][0], &[voice_slots_sym][0]) end)
+        end
+        for i = 1, #output_units do
+            local fn = output_units[i].fn
+            body_quotes:insert(quote [fn](&[bufs_sym][0], [frames_sym], &[init_slots_sym][0], &[block_slots_sym][0], &[sample_slots_sym][0], &[event_slots_sym][0], &[voice_slots_sym][0]) end)
+        end
 
         body_quotes:insert(quote
             var lo = [int32](master_left_offset)

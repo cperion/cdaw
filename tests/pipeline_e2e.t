@@ -5,6 +5,7 @@
 local D = require("daw-unified")
 local List = require("terralist")
 require("impl/init")
+local TICKS_PER_BEAT = 960
 
 -- Shorthand for ASDL-compatible lists
 local function L(t)
@@ -62,7 +63,7 @@ assert(#authored.tracks == 0, "expected 0 tracks")
 print("  Editor→Authored: OK (" .. #ctx.diagnostics .. " diags)")
 
 -- Phase 1→2: Authored → Resolved
-local resolved = authored:resolve()
+local resolved = authored:resolve(TICKS_PER_BEAT)
 assert(resolved ~= nil, "resolve returned nil")
 assert(#resolved.track_slices == 0, "expected 0 track_slices")
 print("  Authored→Resolved: OK (" .. #ctx.diagnostics .. " diags)")
@@ -184,7 +185,7 @@ assert(a2.assets.notes[1].id == 1, "note asset id should match clip id")
 assert(a2.tracks[1].clips[1].content.note_asset_id == 1, "clip should reference lowered note asset")
 print("  Editor→Authored: OK (tracks=" .. #a2.tracks .. ", diags=" .. #ctx.diagnostics .. ")")
 
-local r2 = a2:resolve()
+local r2 = a2:resolve(TICKS_PER_BEAT)
 assert(r2 ~= nil, "resolve returned nil")
 assert(#r2.track_slices == 1)
 assert(r2.track_slices[1].track.id == 1)

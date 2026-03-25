@@ -7,7 +7,6 @@ local F = require("impl/_support/fallbacks")
 local L = F.L
 diag.status("authored.track.resolve", "real")
 
-local DEFAULT_TICKS_PER_BEAT = 960
 local interp_codes = { Linear = 0, Smoothstep = 1, Hold = 2 }
 
 local function authored_curve_to_resolved(param, ticks_per_beat)
@@ -94,7 +93,7 @@ local resolve_track = terralib.memoize(function(self, ticks_per_beat)
 end)
 
 function D.Authored.Track:resolve(ticks_per_beat)
-    ticks_per_beat = type(ticks_per_beat) == "number" and ticks_per_beat or DEFAULT_TICKS_PER_BEAT
+    assert(type(ticks_per_beat) == "number", "Authored.Track:resolve requires explicit number ticks_per_beat")
     return diag.wrap(nil, "authored.track.resolve", "real", function()
         return resolve_track(self, ticks_per_beat)
     end, function()

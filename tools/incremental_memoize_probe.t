@@ -6,6 +6,7 @@ require("impl/init")
 local session = require("app/session")
 local F = require("impl/_support/fallbacks")
 local L = F.L
+local TICKS_PER_BEAT = 960
 
 local function static_param(id, name, value, mn, mx)
     return D.Editor.ParamValue(id, name, value, mn, mx, D.Editor.StaticValue(value), D.Editor.Replace, D.Editor.NoSmoothing)
@@ -40,7 +41,7 @@ local function ptr(fn) return fn and fn:getpointer() or nil end
 
 local function snap(project)
     local authored = project:lower()
-    local resolved = authored:resolve()
+    local resolved = authored:resolve(TICKS_PER_BEAT)
     local classified = resolved:classify()
     local scheduled = classified:schedule()
     local kernel = scheduled:compile()
@@ -51,12 +52,28 @@ local function snap(project)
         scheduled = scheduled,
         kernel = kernel,
         render_ptr = ptr(kernel:entry_fn()),
+        track_ptrs = {},
+        graph_ptrs = {},
+        node_ptrs = {},
+        mix_ptrs = {},
+        output_ptrs = {},
     }
-    s.track_ptrs = {}
-    s.graph_ptrs = {}
     for i = 1, #scheduled.track_programs do
-        s.track_ptrs[i] = ptr(scheduled.track_programs[i]:compile().fn)
-        s.graph_ptrs[i] = ptr(scheduled.track_programs[i].device_graph:compile().fn)
+        local tp = scheduled.track_programs[i]
+        s.track_ptrs[i] = ptr(tp:compile().fn)
+        s.graph_ptrs[i] = ptr(tp.device_graph:compile().fn)
+        s.node_ptrs[i] = {}
+        for j = 1, #tp.device_graph.node_programs do
+            s.node_ptrs[i][j] = ptr(tp.device_graph.node_programs[j]:compile().fn)
+        end
+        s.mix_ptrs[i] = {}
+        for j = 1, #tp.mix_programs do
+            s.mix_ptrs[i][j] = ptr(tp.mix_programs[j]:compile().fn)
+        end
+        s.output_ptrs[i] = {}
+        for j = 1, #tp.output_programs do
+            s.output_ptrs[i][j] = ptr(tp.output_programs[j]:compile().fn)
+        end
     end
     return s
 end
@@ -83,6 +100,15 @@ do
     for i = 1, 2 do
         show_bool("track " .. i .. " unit ptr reused", a.track_ptrs[i] == b.track_ptrs[i])
         show_bool("track " .. i .. " graph unit ptr reused", a.graph_ptrs[i] == b.graph_ptrs[i])
+        for j = 1, #a.node_ptrs[i] do
+            show_bool("track " .. i .. " node " .. j .. " ptr reused", a.node_ptrs[i][j] == b.node_ptrs[i][j])
+        end
+        for j = 1, #a.mix_ptrs[i] do
+            show_bool("track " .. i .. " mix " .. j .. " ptr reused", a.mix_ptrs[i][j] == b.mix_ptrs[i][j])
+        end
+        for j = 1, #a.output_ptrs[i] do
+            show_bool("track " .. i .. " output " .. j .. " ptr reused", a.output_ptrs[i][j] == b.output_ptrs[i][j])
+        end
     end
 end
 
@@ -94,8 +120,16 @@ do
     local after = snap(session.update_project_track_volume(p, 1, 0.4))
     show_bool("track 2 track-unit ptr reused", before.track_ptrs[2] == after.track_ptrs[2])
     show_bool("track 2 graph-unit ptr reused", before.graph_ptrs[2] == after.graph_ptrs[2])
+    show_bool("track 2 node 1 ptr reused", before.node_ptrs[2][1] == after.node_ptrs[2][1])
+    show_bool("track 2 node 2 ptr reused", before.node_ptrs[2][2] == after.node_ptrs[2][2])
+    show_bool("track 2 mix ptr reused", before.mix_ptrs[2][1] == after.mix_ptrs[2][1])
+    show_bool("track 2 output ptr reused", before.output_ptrs[2][1] == after.output_ptrs[2][1])
     show_bool("track 1 track-unit ptr changed", before.track_ptrs[1] ~= after.track_ptrs[1])
     show_bool("track 1 graph-unit ptr reused", before.graph_ptrs[1] == after.graph_ptrs[1])
+    show_bool("track 1 node 1 ptr reused", before.node_ptrs[1][1] == after.node_ptrs[1][1])
+    show_bool("track 1 node 2 ptr reused", before.node_ptrs[1][2] == after.node_ptrs[1][2])
+    show_bool("track 1 mix ptr reused", before.mix_ptrs[1][1] == after.mix_ptrs[1][1])
+    show_bool("track 1 output ptr changed", before.output_ptrs[1][1] ~= after.output_ptrs[1][1])
     show_bool("project render ptr changed", before.render_ptr ~= after.render_ptr)
 end
 
@@ -107,8 +141,16 @@ do
     local after = snap(session.update_project_param(p, 11, 0, 0.75))
     show_bool("track 2 track-unit ptr reused", before.track_ptrs[2] == after.track_ptrs[2])
     show_bool("track 2 graph-unit ptr reused", before.graph_ptrs[2] == after.graph_ptrs[2])
+    show_bool("track 2 node 1 ptr reused", before.node_ptrs[2][1] == after.node_ptrs[2][1])
+    show_bool("track 2 node 2 ptr reused", before.node_ptrs[2][2] == after.node_ptrs[2][2])
+    show_bool("track 2 mix ptr reused", before.mix_ptrs[2][1] == after.mix_ptrs[2][1])
+    show_bool("track 2 output ptr reused", before.output_ptrs[2][1] == after.output_ptrs[2][1])
     show_bool("track 1 track-unit ptr changed", before.track_ptrs[1] ~= after.track_ptrs[1])
     show_bool("track 1 graph-unit ptr changed", before.graph_ptrs[1] ~= after.graph_ptrs[1])
+    show_bool("track 1 node 1 ptr reused", before.node_ptrs[1][1] == after.node_ptrs[1][1])
+    show_bool("track 1 node 2 ptr changed", before.node_ptrs[1][2] ~= after.node_ptrs[1][2])
+    show_bool("track 1 mix ptr reused", before.mix_ptrs[1][1] == after.mix_ptrs[1][1])
+    show_bool("track 1 output ptr reused", before.output_ptrs[1][1] == after.output_ptrs[1][1])
     show_bool("project render ptr changed", before.render_ptr ~= after.render_ptr)
 end
 
@@ -126,6 +168,38 @@ do
     show_bool("track 1 track-unit ptr changed", before.track_ptrs[1] ~= after.track_ptrs[1])
     show_bool("track 2 track-unit ptr changed", before.track_ptrs[2] ~= after.track_ptrs[2])
     show_bool("project render ptr changed", before.render_ptr ~= after.render_ptr)
+end
+
+line()
+print("5. Session undo / redo hot swap")
+do
+    local p = make_project(64)
+    local s = session.new(p):compile()
+    local base = snap(s.project)
+    local base_render = ptr(s.render_fn)
+
+    s:set_track_volume(1, 0.4)
+    local edited = snap(s.project)
+    local edited_render = ptr(s.render_fn)
+
+    s:undo()
+    local undone = snap(s.project)
+    local undone_render = ptr(s.render_fn)
+
+    show_bool("undo restored original project object", s.project == p)
+    show_bool("undo restored render ptr", base.render_ptr == undone.render_ptr and base_render == undone_render)
+    show_bool("undo restored track 1 node 1 ptr", base.node_ptrs[1][1] == undone.node_ptrs[1][1])
+    show_bool("undo restored track 1 mix ptr", base.mix_ptrs[1][1] == undone.mix_ptrs[1][1])
+    show_bool("undo restored track 1 output ptr", base.output_ptrs[1][1] == undone.output_ptrs[1][1])
+    show_bool("undo diverged from edited ptr", edited.render_ptr ~= undone.render_ptr)
+
+    s:redo()
+    local redone = snap(s.project)
+    local redone_render = ptr(s.render_fn)
+    show_bool("redo restored edited render ptr", redone.render_ptr == edited.render_ptr and redone_render == edited_render)
+    show_bool("redo restored edited track 1 node 1 ptr", redone.node_ptrs[1][1] == edited.node_ptrs[1][1])
+    show_bool("redo restored edited track 1 mix ptr", redone.mix_ptrs[1][1] == edited.mix_ptrs[1][1])
+    show_bool("redo restored edited track 1 output ptr", redone.output_ptrs[1][1] == edited.output_ptrs[1][1])
 end
 
 print("")

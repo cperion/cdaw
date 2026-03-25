@@ -6,8 +6,7 @@ local diag = require("impl/_support/diagnostics")
 local F = require("impl/_support/fallbacks")
 local compile_binding_value = require("impl/scheduled/compiler/binding")
 local L = F.L
-diag.status("scheduled.node_job.compile", "real")
-diag.variant_family("scheduled.node_job.compile", "Authored", "NodeKind")
+diag.status("scheduled.node_job.quote", "real")
 
 local C = terralib.includec("math.h")
 
@@ -18,38 +17,6 @@ local NK = {
     Wavefolder=52, Clipper=53, AddN=60, MulN=62, NegN=66, AbsN=65,
     ClampN=69, InvertN=90, AttenuateN=86,
 }
-
-for member in pairs(D.Authored.NodeKind.members) do
-    if type(member) == "table" and member ~= D.Authored.NodeKind then
-        local name = rawget(member, "kind")
-        if type(name) == "string" then
-            diag.variant_status("scheduled.node_job.compile", name, "stub")
-        end
-    end
-end
-
-local implemented_variant_status = {
-    GainNode = "real",
-    NegN = "real",
-    AbsN = "real",
-    ClampN = "real",
-    AttenuateN = "real",
-    InvertN = "real",
-
-    PanNode = "partial",
-    EQNode = "partial",
-    CompressorNode = "partial",
-    GateNode = "partial",
-    SaturatorNode = "partial",
-    Clipper = "partial",
-    Wavefolder = "partial",
-    SineOsc = "partial",
-    SawOsc = "partial",
-    SquareOsc = "partial",
-}
-for name, status in pairs(implemented_variant_status) do
-    diag.variant_status("scheduled.node_job.compile", name, status)
-end
 
 local function get_param_binding(param_bindings, first_param, index)
     return param_bindings[first_param + index + 1]
@@ -89,7 +56,7 @@ local function build_param_value(ctx, first_param, index)
 end
 
 local function compile_with(self, ctx)
-    return diag.wrap(ctx, "scheduled.node_job.compile", "real", function()
+    return diag.wrap(ctx, "scheduled.node_job.quote", "real", function()
         assert(ctx and ctx.bufs_sym, "NodeJob:compile requires ctx.bufs_sym")
         assert(ctx and ctx.frames_sym, "NodeJob:compile requires ctx.frames_sym")
 

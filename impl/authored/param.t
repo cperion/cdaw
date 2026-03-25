@@ -7,7 +7,6 @@ local F = require("impl/_support/fallbacks")
 local L = F.L
 diag.status("authored.param.resolve", "real")
 
-local DEFAULT_TICKS_PER_BEAT = 960
 local combine_codes = {
     Replace = 0, Add = 1, Multiply = 2, ModMin = 3, ModMax = 4,
 }
@@ -52,7 +51,7 @@ local resolve_param = terralib.memoize(function(self, ticks_per_beat)
 end)
 
 function D.Authored.Param:resolve(ticks_per_beat)
-    ticks_per_beat = type(ticks_per_beat) == "number" and ticks_per_beat or DEFAULT_TICKS_PER_BEAT
+    assert(type(ticks_per_beat) == "number", "Authored.Param:resolve requires explicit number ticks_per_beat")
     return diag.wrap(nil, "authored.param.resolve", "real", function()
         return resolve_param(self, ticks_per_beat)
     end, function()

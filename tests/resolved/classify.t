@@ -5,6 +5,7 @@ local D = require("daw-unified")
 require("impl/init")
 local F = require("impl/_support/fallbacks")
 local L = F.L
+local TICKS_PER_BEAT = 960
 
 local pass, fail = 0, 0
 local function check(c, m) if c then pass=pass+1 else fail=fail+1; print("  FAIL: "..m) end end
@@ -98,7 +99,7 @@ do
             L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
-    local c = project:lower():resolve():classify()
+    local c = project:lower():resolve(TICKS_PER_BEAT):classify()
     check(#c.track_slices == 1, "classified track slice")
     check(#c.track_slices[1].device_graph.graphs >= 1, "classified graphs")
     check(#c.track_slices[1].device_graph.nodes >= 1, "classified nodes")

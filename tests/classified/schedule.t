@@ -5,6 +5,7 @@ local D = require("daw-unified")
 require("impl/init")
 local F = require("impl/_support/fallbacks")
 local L = F.L
+local TICKS_PER_BEAT = 960
 
 local pass, fail = 0, 0
 local function check(c, m) if c then pass=pass+1 else fail=fail+1; print("  FAIL: "..m) end end
@@ -70,7 +71,7 @@ do
     )
     local r = gs:schedule(F.classified_transport(), F.classified_tempo_map())
     check(r.graph.graph_id == 200, "graph_id")
-    check(#r.node_jobs == 2, "2 node jobs")
+    check(#r.node_programs == 2, "2 node programs")
     check(r.graph.node_job_count == 2, "job count")
     check(r.graph.in_buf == 0, "in_buf=0")
     check(r.graph.out_buf >= 1, "out_buf allocated")
@@ -98,7 +99,7 @@ do
     check(r.track.mix_in_buf == 1, "mix_in_buf=1")
     check(r.master_left == 2, "master_left=2")
     check(r.master_right == 3, "master_right=3")
-    check(#r.output_jobs >= 1, "output jobs")
+    check(#r.output_programs >= 1, "output programs")
     print("  PASS")
 end
 
@@ -119,10 +120,10 @@ do
             L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
-    local s = project:lower():resolve():classify():schedule()
+    local s = project:lower():resolve(TICKS_PER_BEAT):classify():schedule()
     check(#s.track_programs >= 1, "track programs scheduled")
-    check(#s.track_programs[1].device_graph.node_jobs >= 1, "node jobs created")
-    check(#s.track_programs[1].output_jobs >= 1, "output jobs created")
+    check(#s.track_programs[1].device_graph.node_programs >= 1, "node programs created")
+    check(#s.track_programs[1].output_programs >= 1, "output programs created")
     check(s.track_programs[1].total_buffers >= 4, "buffers allocated")
     print("  PASS")
 end

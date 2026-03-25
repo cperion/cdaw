@@ -8,6 +8,7 @@ local D = require("daw-unified")
 require("impl/init")
 local F = require("impl/_support/fallbacks")
 local L = F.L
+local TICKS_PER_BEAT = 960
 local C = terralib.includec("stdio.h")
 
 local pass_count = 0
@@ -83,7 +84,7 @@ local authored = project:lower()
 check(#authored.tracks == 1, "Should have 1 track")
 
 print("Phase 2: Authored → Resolved")
-local resolved = authored:resolve()
+local resolved = authored:resolve(TICKS_PER_BEAT)
 local rt = resolved.track_slices[1]
 check(rt ~= nil, "Should have a resolved track slice")
 check(rt and #rt.device_graph.nodes >= 1, "Should have ≥1 resolved node")
@@ -99,7 +100,7 @@ print("Phase 4: Classified → Scheduled")
 local scheduled = classified:schedule()
 local tp = scheduled.track_programs[1]
 check(tp ~= nil, "Should have a scheduled track program")
-check(tp and tp.device_graph and #tp.device_graph.node_jobs >= 1, "Should have ≥1 scheduled node job")
+check(tp and tp.device_graph and #tp.device_graph.node_programs >= 1, "Should have ≥1 scheduled node program")
 check(tp and tp.total_buffers >= 3, "Should have ≥3 buffers (master L + R + work)")
 
 print("  Literals:")

@@ -7,7 +7,6 @@ local F = require("impl/_support/fallbacks")
 local L = F.L
 diag.status("authored.graph.resolve", "real")
 
-local DEFAULT_TICKS_PER_BEAT = 960
 local layout_codes = { Serial = 0, Free = 1, Parallel = 2, Switched = 3, Split = 4 }
 local domain_codes = { NoteDomain = 0, AudioDomain = 1, HybridDomain = 2, ControlDomain = 3 }
 local hint_codes = {
@@ -244,7 +243,7 @@ local resolve_graph_slice = terralib.memoize(function(self, ticks_per_beat)
 end)
 
 function D.Authored.Graph:resolve(ticks_per_beat)
-    ticks_per_beat = type(ticks_per_beat) == "number" and ticks_per_beat or DEFAULT_TICKS_PER_BEAT
+    assert(type(ticks_per_beat) == "number", "Authored.Graph:resolve requires explicit number ticks_per_beat")
     return diag.wrap(nil, "authored.graph.resolve", "real", function()
         return resolve_graph_slice(self, ticks_per_beat)
     end, function()
