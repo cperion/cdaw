@@ -16,9 +16,26 @@ local function graph_output(unit, gp)
     local BS = gp.transport.buffer_size
     local total = math.max(gp.total_buffers * BS, 1)
     local bufs = terralib.new(float[total])
-    local state_raw = KS.alloc_unit_state(unit)
     for i = 0, total - 1 do bufs[i] = 0.0 end
-    unit.fn(bufs, BS, state_raw)
+
+    -- Build a typed terra thunk that calls unit.fn with the correct state type.
+    -- Unit.leaf fns are typed: (bufs, frames) or (bufs, frames, state: &StateT).
+    -- We can't call them from Lua with a raw &uint8; we need a typed wrapper.
+    local state_t = unit.state_t
+    local fn = unit.fn
+    local thunk
+    if terralib.sizeof(state_t) > 0 then
+        thunk = terra(bufs_arg: &float, frames_arg: int32, state_raw_arg: &uint8)
+            [fn](bufs_arg, frames_arg, [&state_t](state_raw_arg))
+        end
+    else
+        thunk = terra(bufs_arg: &float, frames_arg: int32, state_raw_arg: &uint8)
+            [fn](bufs_arg, frames_arg)
+        end
+    end
+
+    local state_raw, _ = KS.alloc_unit_state(unit)
+    thunk(bufs, BS, state_raw)
     return bufs[gp.graph.out_buf * BS]
 end
 
@@ -40,7 +57,7 @@ do
         L{D.Classified.Literal(100), D.Classified.Literal(0.5)},
         L(), L(), L(), L(), L(), L(),
         1, 0)
-    local gp = gs:schedule(D.Classified.Transport(44100, 512, 120, 0, 4, 4, 0, false, 0, 0), D.Classified.TempoMap(L()))
+    local gp = gs:schedule(D.Classified.Transport(44100, 512, 120, 4, 4, 0, false, 0, 0, false, false, 0, 0, 0, 0, 0), D.Classified.TempoMap(L()))
     local unit = gp:compile()
     local out0 = graph_output(unit, gp)
     check(approx(out0, 0.5, 0.01), "square(+1) * gain(0.5) = 0.5")
@@ -51,25 +68,38 @@ print("Test 2: TrackProgram compile — volume/pan applied")
 do
     local project = D.Editor.Project(
         "track_unit", nil, 1,
-        D.Editor.Transport(44100, 64, 120, 0, 4, 4, D.Editor.QNone, false, nil),
-        L{D.Editor.Track(1, "T1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+        D.Editor.Transport(44100, 64, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
+        L{D.Editor.Track(1, "T1", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
             D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(-1), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Square", D.Authored.SquareOsc,
                     L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
-                    L(), nil, nil, nil, true, nil))
+                    L(), nil, nil, nil, true, true, nil))
             }),
-            L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
-        L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
+            L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil)},
+        L(), L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
     local tp = project:lower():resolve(TICKS_PER_BEAT):classify():schedule().track_programs[1]
     local unit = tp:compile()
     local outL = terralib.new(float[64])
     local outR = terralib.new(float[64])
-    local state_raw = KS.alloc_unit_state(unit)
+    local state_raw, _ = KS.alloc_unit_state(unit)
     for i = 0, 63 do outL[i] = 0.0; outR[i] = 0.0 end
-    unit.fn(outL, outR, 64, state_raw)
+    -- Track fn is typed; wrap it for Lua calling
+    local state_t = unit.state_t
+    local fn = unit.fn
+    local track_thunk
+    if terralib.sizeof(state_t) > 0 then
+        track_thunk = terra(ol: &float, or_: &float, f: int32, sr: &uint8)
+            [fn](ol, or_, f, [&state_t](sr))
+        end
+    else
+        track_thunk = terra(ol: &float, or_: &float, f: int32, sr: &uint8)
+            [fn](ol, or_, f)
+        end
+    end
+    track_thunk(outL, outR, 64, state_raw)
     check(outL[0] > 0.49 and outL[0] < 0.51, "hard-left volume 0.5 on +1 square = 0.5 left")
     check(approx(outR[0], 0.0, 0.01), "hard-left right channel ~= 0")
     print("  PASS")
@@ -79,20 +109,20 @@ print("Test 3: Project compile — multi-track mix")
 do
     local project = D.Editor.Project(
         "mix_unit", nil, 1,
-        D.Editor.Transport(44100, 64, 120, 0, 4, 4, D.Editor.QNone, false, nil),
+        D.Editor.Transport(44100, 64, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
         L{
-            D.Editor.Track(1, "T1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+            D.Editor.Track(1, "T1", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
                 D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
-                D.Editor.DeviceChain(L{D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))}),
-                L(), L(), L(), nil, nil, false, false, false, false, false, nil),
-            D.Editor.Track(2, "T2", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+                D.Editor.DeviceChain(L{D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, true, nil))}),
+                L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil),
+            D.Editor.Track(2, "T2", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
                 D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.25), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
-                D.Editor.DeviceChain(L{D.Editor.NativeDevice(D.Editor.NativeDeviceBody(20, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))}),
-                L(), L(), L(), nil, nil, false, false, false, false, false, nil)
+                D.Editor.DeviceChain(L{D.Editor.NativeDevice(D.Editor.NativeDeviceBody(20, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, true, nil))}),
+                L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil)
         },
-        L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
+        L(), L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
     local kernel = project:lower():resolve(TICKS_PER_BEAT):classify():schedule():compile()
     local outL = terralib.new(float[64])
@@ -109,15 +139,15 @@ print("Test 4: Automation compiles through TrackProgram")
 do
     local project = D.Editor.Project(
         "auto_unit", nil, 1,
-        D.Editor.Transport(44100, 64, 120, 0, 4, 4, D.Editor.QNone, false, nil),
-        L{D.Editor.Track(1, "T1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+        D.Editor.Transport(44100, 64, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
+        L{D.Editor.Track(1, "T1", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
             D.Editor.ParamValue(0, "vol", 1, 0, 4,
                 D.Editor.AutomationRef(D.Editor.AutoCurve(L{D.Editor.AutoPoint(0, 0.2), D.Editor.AutoPoint(1, 0.8)}, D.Editor.Linear)),
                 D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
-            D.Editor.DeviceChain(L{D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))}),
-            L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
-        L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
+            D.Editor.DeviceChain(L{D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, true, nil))}),
+            L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil)},
+        L(), L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
     local tp = project:lower():resolve(TICKS_PER_BEAT):classify():schedule().track_programs[1]
     check(#tp.mixer_block_ops >= 1, "mixer block ops present")

@@ -2796,3 +2796,173 @@ terralib.memoize(function(config) ... return { fn = fn, state_t = S } end)
 ```
 
 Write this at every level of your domain hierarchy. Put your ASDL-driven code generation in the `...`. That's the pattern.
+
+
+## Purity, Closure, and the Two Levels
+
+### Every compiler function is pure. Every compiled function is closed.
+
+There are two levels in this architecture, and they have different contracts:
+
+```
+COMPILATION LEVEL (Lua):
+    compile_effect(effect)   → { fn, state_t }
+    compile_track(track)     → { fn, state_t }
+    compile_session(session) → { fn, state_t }
+
+    Pure? YES. Absolutely.
+    Same input → same output. Enforced by terralib.memoize.
+    No side effects. No hidden state. No mutation.
+    ASDL in, { fn, state_t } out. Always.
+
+EXECUTION LEVEL (Terra):
+    fn(out_L, out_R, n, state)
+
+    Pure? No. It mutates.
+    It writes to out_L, out_R (output buffers).
+    It writes to state (filter history, phase accumulators).
+```
+
+But look at *what* the compiled function mutates and *how*:
+
+```
+The compiled function:
+    ✓ reads only from its explicit parameters
+    ✓ writes only to its explicit parameters
+    ✓ touches no globals
+    ✓ allocates nothing
+    ✓ frees nothing
+    ✓ calls no external systems
+    ✓ has no hidden inputs
+    ✓ has no hidden outputs
+    ✓ its behavior is ENTIRELY determined by its arguments
+```
+
+That is not purity in the Haskell sense. But it is something stronger than what any traditional DAW provides. It is **closed mutation** — the function mutates, but only things it was given explicitly, and only things it owns exclusively. Nobody else reads the state. Nobody else writes the state. The mutation is invisible to the outside world.
+
+The real statement is:
+
+```
+Every COMPILER function is pure.
+    config → { fn, state_t }
+    Enforced by memoize. Guaranteed.
+
+Every COMPILED function is closed.
+    All inputs explicit. All outputs explicit.
+    All mutation confined to owned state.
+    No hidden effects. No shared state. No allocation.
+```
+
+All the *reasoning* happens at the pure level. Caching? Pure level — memoize checks equality on pure inputs. Incremental recompilation? Pure level — unchanged inputs return cached outputs. Hot-swap? Pure level — swap one pure product for another. State isolation? Pure level — each pure compilation produces its own state type. Correctness? Pure level — same config always produces the same function.
+
+The impure part — the actual sample processing — is *below* the reasoning level. The pattern does not think about it. It generates it and moves on. The generated code mutates, yes, but it mutates inside a box that the pure level constructed. The box walls are the `state_t`. Nobody reaches in. Nobody reaches out.
+
+```
+Traditional DAW:
+    Impure code managing impure state
+    with impure infrastructure
+    all reasoning is about mutation
+
+This pattern:
+    Pure compilers producing closed functions
+    with owned state
+    all reasoning is about compilation
+    mutation exists but is not reasoned about —
+    it is generated, contained, and forgotten
+```
+
+So can you say every function is pure? Not strictly. But you can say something better: **every function you reason about is pure, and every function you do not reason about is closed.** The architecture splits cleanly at the compilation boundary. Above it: pure, cacheable, composable, correct by construction. Below it: fast, mutating, but confined to a box that the pure level built.
+
+The purity is where the thinking is. The mutation is where the arithmetic is. They never mix. That is why the pattern works.
+
+---
+
+### Every ctx, void pointer, and indirection is a smell. Every single one.
+
+A `ctx` in the compiled output means **knowledge leaked to runtime**. Something was known at compile time but was not consumed. It was passed through as a runtime value instead of being baked as a constant or resolved into a struct field.
+
+```
+void pointer:     "I don't know what this points to"
+                  → the COMPILER knew. Why doesn't the code?
+
+ctx parameter:    "I need runtime context to do my job"
+                  → the compiler HAD the context. Why didn't it
+                    compile it away?
+
+virtual dispatch: "I don't know what function to call"
+                  → the compiler knew the type. Why is there
+                    a table lookup at runtime?
+
+config struct:    "I read my settings at runtime"
+                  → the settings were known at edit time.
+                    They should be constants in the instruction stream.
+
+hash table:       "I look up a value by name at runtime"
+                  → the name was known at compile time.
+                    It should be a direct field access.
+```
+
+Every indirection is a question being asked at runtime that was already answered at compile time. The compiler had the answer. It failed to consume it. The answer leaked through to runtime as a pointer, a ctx, a table, a dispatch.
+
+```
+COMPILED FUNCTION (Terra):
+
+    ✗ fn(buf, n, ctx)             ← what is ctx? A bag of unknowns.
+                                     LLVM can't see through it.
+                                     The function isn't closed.
+                                     Something is hiding.
+
+    ✓ fn(buf, n, state)           ← state is &MySpecificState.
+                                     Every field known at compile time.
+                                     Every offset baked. Nothing hidden.
+```
+
+This applies at the compilation level too. Rule B from this document:
+
+> "A public method may depend only on `self` and explicit semantic typed arguments. It must not hide semantic dependencies in ambient mutable context."
+
+```lua
+-- SMELL: ctx is a bag. Anything could be in it.
+-- Memoize keys on self, but what if ctx changed?
+-- Silent cache bug.
+function NodeKind.Biquad:compile(ctx)
+    local sr    = ctx.sample_rate
+    local bs    = ctx.buffer_size
+    local tempo = ctx.tempo_map
+    -- ...
+end
+
+-- CLEAN: every dependency is explicit and in the memoize key.
+-- Nothing hidden. Nothing ambient.
+function NodeKind.Biquad:compile(sample_rate, buffer_size)
+    local b0, b1, b2, a1, a2 = compute_biquad(
+        self.freq, self.q, sample_rate)
+    -- ...
+end
+```
+
+The smell hierarchy:
+
+```
+WORST:  void*          → "I know nothing about this memory"
+BAD:    ctx: &Context  → "I'm a bag of maybe-relevant state"
+MEH:    config: table  → "I'm a Lua table, at least it's typed"
+OK:     self + args    → "every dependency is named and typed"
+BEST:   self only      → "everything I need is in the ASDL node"
+```
+
+The test: if you cannot memoize purely on the explicit arguments, you have hidden state. The memoize key **is** the purity proof. If the function depends on something not in the key, the cache is wrong. If the function depends only on what is in the key, the cache is correct by construction.
+
+```lua
+terralib.memoize(function(effect, sample_rate)
+    -- These two arguments ARE the cache key.
+    -- If the function touches ANYTHING ELSE, it is a bug.
+    -- Not a style issue. A correctness bug.
+    -- The memoize cache will return stale results.
+end)
+```
+
+The rule is absolute: in the compiled output, there must be zero indirection. No `ctx`. No void pointers. No dispatch tables. No config reads at runtime. Only explicit typed parameters and constants baked at compile time. At the compilation level, every dependency must be in the explicit argument list — because `terralib.memoize` is the purity enforcer, and it only sees the arguments.
+
+Every `ctx` is a confession that the compiler did not finish its job.
+

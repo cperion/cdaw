@@ -1,86 +1,93 @@
--- impl2/scheduled/leaf_programs.t
+-- src/scheduled/leaf_programs.t
 -- Scheduled.NodeProgram:compile, ModProgram:compile, ClipProgram:compile,
 -- SendProgram:compile, MixProgram:compile, OutputProgram:compile
+--
+-- All compile() calls return Unit{fn, state_t} via Unit.leaf().
+-- fn signature: terra(bufs, frames, init_slots, block_slots,
+--                     sample_slots, event_slots, voice_slots, state: &state_t)
+-- No state_raw: &uint8. The state type is declared per node kind and composed
+-- by the parent GraphProgram using Unit.compose. Types fall out structurally.
 
 local compile_node_job = require("src/scheduled/compiler/node_job")
-local compile_mod_job = require("src/scheduled/compiler/mod_job")
+local compile_mod_job  = require("src/scheduled/compiler/mod_job")
 local compile_clip_job = require("src/scheduled/compiler/clip_job")
 local compile_send_job = require("src/scheduled/compiler/send_job")
-local compile_mix_job = require("src/scheduled/compiler/mix_job")
+local compile_mix_job  = require("src/scheduled/compiler/mix_job")
 local compile_output_job = require("src/scheduled/compiler/output_job")
 
+-- Per-kind state types for stateful DSP nodes.
+-- Each oscillator needs one float phase accumulator in [0, 1).
+-- Stateless nodes use tuple() — no field in the composed parent state.
+local NK_SineOsc   = 28
+local NK_SawOsc    = 29
+local NK_SquareOsc = 30
+
+local function make_osc_state_t()
+    local S = terralib.types.newstruct("OscState")
+    S.entries:insert({ field = "phase", type = float })
+    return S
+end
+-- One canonical type per oscillator kind (they are structurally identical).
+local OSC_STATE_T = make_osc_state_t()
+
+local function node_state_t(kind_code)
+    if kind_code == NK_SineOsc or kind_code == NK_SawOsc or kind_code == NK_SquareOsc then
+        return OSC_STATE_T
+    end
+    return tuple()
+end
+
 return function(types)
-local K = types.Kernel
     local Unit = types.Unit
-    local function build_literal_values(literals)
-        local values = {}
-        for i = 1, #(literals or {}) do values[i] = literals[i].value end
-        return values
+
+    -- Leaf fn param symbols: the runtime inputs every node fn receives.
+    -- Indices: [1]=bufs [2]=frames [3]=init_slots [4]=block_slots
+    --          [5]=sample_slots [6]=event_slots [7]=voice_slots
+    -- Plus optional state param injected by Unit.leaf when state_t != tuple().
+    local function make_leaf_params()
+        return terralib.newlist({
+            symbol(&float, "bufs"),
+            symbol(int32,  "frames"),
+            symbol(&float, "init_slots"),
+            symbol(&float, "block_slots"),
+            symbol(&float, "sample_slots"),
+            symbol(&float, "event_slots"),
+            symbol(&float, "voice_slots"),
+        })
     end
 
-    local function make_leaf_ctx(self)
-        local bufs_sym = symbol(&float, "bufs")
-        local frames_sym = symbol(int32, "frames")
-        local init_slots_sym = symbol(&float, "init_slots")
-        local block_slots_sym = symbol(&float, "block_slots")
-        local sample_slots_sym = symbol(&float, "sample_slots")
-        local event_slots_sym = symbol(&float, "event_slots")
-        local voice_slots_sym = symbol(&float, "voice_slots")
-        local state_raw_sym = symbol(&uint8, "state_raw")
-        return {
-            diagnostics = {},
-            BS = (self.transport and self.transport.buffer_size) or 512,
-            sample_rate = (self.transport and self.transport.sample_rate) or 44100,
-            literals = self.literals,
-            literal_values = build_literal_values(self.literals),
-            bufs_sym = bufs_sym,
-            frames_sym = frames_sym,
-            init_slots_sym = init_slots_sym,
-            block_slots_sym = block_slots_sym,
-            sample_slots_sym = sample_slots_sym,
-            event_slots_sym = event_slots_sym,
-            voice_slots_sym = voice_slots_sym,
-            state_raw_sym = state_raw_sym,
-            state_sym = `([&float]([state_raw_sym])),
-        }
-    end
-
-    local function compile_leaf(self, job_field, compile_job_fn, extra_ctx)
-        local ctx = make_leaf_ctx(self)
-        if extra_ctx then for k, v in pairs(extra_ctx(self, ctx)) do ctx[k] = v end end
-        local body_q = compile_job_fn(self[job_field], ctx)
-        local fn = terra([ctx.bufs_sym], [ctx.frames_sym], [ctx.init_slots_sym], [ctx.block_slots_sym],
-                         [ctx.sample_slots_sym], [ctx.event_slots_sym], [ctx.voice_slots_sym], [ctx.state_raw_sym])
-            [body_q]
-        end
-        return Unit(fn, tuple())
-    end
-
-    local function node_extra(self, ctx)
-        ctx.param_bindings = self.param_bindings
-        ctx.param_meta = self.params
-        ctx.mod_slots = self.mod_slots
-        ctx.mod_routes = self.mod_routes
-        ctx.mod_slot_by_index = {}
-        for i = 1, #(self.mod_slots or {}) do
-            local ms = self.mod_slots[i]
-            ctx.mod_slot_by_index[ms.slot_index] = ms
-        end
-        return {}
-    end
-
-    local function mod_extra(self, ctx)
-        ctx.block_sample = 0
-        ctx.param_bindings = self.param_bindings
-        return {}
+    -- Generic leaf compiler.
+    -- state_t:      Terra state type for this program (tuple() = stateless).
+    -- job_compiler: compile(program, params, state_sym) -> quote.
+    --               program = full ASDL program record (owns all compile-time data).
+    --               params  = terralib list of leaf fn param symbols.
+    --               state_sym = typed &state_t or nil.
+    -- No ctx. No bags. All data comes from self or explicit params.
+    local function compile_leaf(self, state_t, job_compiler)
+        local params = make_leaf_params()
+        return Unit.leaf(state_t, params, function(state_sym, params)
+            return job_compiler(self, params, state_sym)
+        end)
     end
 
     return {
-        node_program = function(self) return compile_leaf(self, "node", compile_node_job, node_extra) end,
-        mod_program = function(self) return compile_leaf(self, "mod", compile_mod_job, mod_extra) end,
-        clip_program = function(self) return compile_leaf(self, "clip", compile_clip_job) end,
-        send_program = function(self) return compile_leaf(self, "send", compile_send_job) end,
-        mix_program = function(self) return compile_leaf(self, "mix", compile_mix_job) end,
-        output_program = function(self) return compile_leaf(self, "output", compile_output_job) end,
+        node_program = function(self)
+            return compile_leaf(self, node_state_t(self.node.kind_code), compile_node_job)
+        end,
+        mod_program = function(self)
+            return compile_leaf(self, tuple(), compile_mod_job)
+        end,
+        clip_program = function(self)
+            return compile_leaf(self, tuple(), compile_clip_job)
+        end,
+        send_program = function(self)
+            return compile_leaf(self, tuple(), compile_send_job)
+        end,
+        mix_program = function(self)
+            return compile_leaf(self, tuple(), compile_mix_job)
+        end,
+        output_program = function(self)
+            return compile_leaf(self, tuple(), compile_output_job)
+        end,
     }
 end

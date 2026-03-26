@@ -15,13 +15,13 @@ print("1. kernel.project.entry_fn")
 do
     local project = D.Editor.Project(
         "Test", nil, 1,
-        D.Editor.Transport(44100, 64, 120, 0, 4, 4, D.Editor.QNone, false, nil),
-        L{D.Editor.Track(1, "T1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+        D.Editor.Transport(44100, 64, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
+        L{D.Editor.Track(1, "T1", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
             D.Editor.ParamValue(0, "v", 1, 0, 4, D.Editor.StaticValue(1.0), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "p", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{}),
-            L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
-        L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
+            L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil)},
+        L(), L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
     local a = project:lower()
     local r = a:resolve(960)

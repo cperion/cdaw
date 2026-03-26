@@ -86,47 +86,47 @@ return function(types)
         return prev.value
     end
 
-    local function emit_runtime_ops(ops_owner, ctx)
+    -- Emit rate-slot initialization quotes from ops owned by a program.
+    -- All dependencies are explicit: ops_owner carries its own ops lists;
+    -- literal_values and block_tick come from the program's compile-time data;
+    -- slot symbols are the runtime fn parameters.
+    local function emit_runtime_ops(ops_owner, literal_values, block_tick,
+                                     init_sym, block_sym, sample_sym, event_sym, voice_sym)
+        local bind = function(b)
+            return compile_binding_value(b, literal_values, init_sym, block_sym, sample_sym, event_sym, voice_sym)
+        end
         local quotes = terralib.newlist()
         for i = 1, #(ops_owner.init_ops or L()) do
             local op = ops_owner.init_ops[i]
-            if op.kind == 0 and ctx.init_slots_sym then
-                local slot = op.state_slot
-                local v0 = compile_binding_value(op.i0, ctx)
-                quotes:insert(quote [ctx.init_slots_sym][slot] = [v0] end)
+            if op.kind == 0 and init_sym then
+                quotes:insert(quote [init_sym][op.state_slot] = [bind(op.i0)] end)
             end
         end
         for i = 1, #(ops_owner.block_ops or L()) do
             local op = ops_owner.block_ops[i]
-            if op.kind == 0 and ctx.block_slots_sym then
-                local slot = op.arg0
-                local v0 = compile_binding_value(op.i0, ctx)
-                quotes:insert(quote [ctx.block_slots_sym][slot] = [v0] end)
-            elseif op.kind == 1 and ctx.block_slots_sym then
-                local slot = op.arg0
-                local v = eval_block_curve(op, ops_owner.block_pts or L(), ctx.literal_values or {}, ctx.block_tick or 0)
-                quotes:insert(quote [ctx.block_slots_sym][slot] = [float](v) end)
+            if op.kind == 0 and block_sym then
+                quotes:insert(quote [block_sym][op.arg0] = [bind(op.i0)] end)
+            elseif op.kind == 1 and block_sym then
+                local v = eval_block_curve(op, ops_owner.block_pts or L(), literal_values or {}, block_tick or 0)
+                quotes:insert(quote [block_sym][op.arg0] = [float](v) end)
             end
         end
         for i = 1, #(ops_owner.sample_ops or L()) do
             local op = ops_owner.sample_ops[i]
-            if op.kind == 0 and ctx.sample_slots_sym then
-                local slot = op.state_slot
-                local v0 = compile_binding_value(op.i0, ctx)
-                quotes:insert(quote [ctx.sample_slots_sym][slot] = [v0] end)
+            if op.kind == 0 and sample_sym then
+                quotes:insert(quote [sample_sym][op.state_slot] = [bind(op.i0)] end)
             end
         end
         for i = 1, #(ops_owner.event_ops or L()) do
             local op = ops_owner.event_ops[i]
-            if op.kind == 0 and ctx.event_slots_sym then
-                quotes:insert(quote [ctx.event_slots_sym][op.state_slot] = [float](op.min_v) end)
+            if op.kind == 0 and event_sym then
+                quotes:insert(quote [event_sym][op.state_slot] = [float](op.min_v) end)
             end
         end
         for i = 1, #(ops_owner.voice_ops or L()) do
             local op = ops_owner.voice_ops[i]
-            if op.kind == 0 and ctx.voice_slots_sym then
-                local v0 = compile_binding_value(op.i0, ctx)
-                quotes:insert(quote [ctx.voice_slots_sym][op.state_slot] = [v0] end)
+            if op.kind == 0 and voice_sym then
+                quotes:insert(quote [voice_sym][op.state_slot] = [bind(op.i0)] end)
             end
         end
         return quotes
@@ -178,275 +178,300 @@ return function(types)
     end
 
     local function compile_graph_program(self)
+        -- All state composition is done via Unit.compose.
+        -- No state_raw: &uint8. Each child unit declares its state_t; the
+        -- composed GraphState struct falls out of Unit.compose automatically.
         local buffer_size = self.transport.buffer_size
         local n_bufs = math.max(self.total_buffers, 1)
         local total_floats = math.max(n_bufs * buffer_size, 1)
         local literal_values = {}
         for i = 1, #self.literals do literal_values[i] = self.literals[i].value end
         local rate_counts = graph_runtime_slot_counts(self)
-        local init_count = math.max(rate_counts[1], 1)
+        local init_count  = math.max(rate_counts[1], 1)
         local block_count = math.max(rate_counts[2], 1)
         local sample_count = math.max(rate_counts[3], 1)
-        local event_count = math.max(rate_counts[4], 1)
-        local voice_count = math.max(rate_counts[5], 1)
-        local state_count = math.max(self.total_state_slots, 0)
-        local state_t = make_state_type(state_count)
+        local event_count  = math.max(rate_counts[4], 1)
+        local voice_count  = math.max(rate_counts[5], 1)
 
-        local graph_fn
-        if #self.node_programs > 0 or #self.mod_programs > 0 then
-            local bufs_sym = symbol(&float, "bufs")
-            local frames_sym = symbol(int32, "frames")
-            local state_raw_sym = symbol(&uint8, "state_raw")
-            local init_slots_sym = symbol(float[init_count], "init_slots")
-            local block_slots_sym = symbol(float[block_count], "block_slots")
-            local sample_slots_sym = symbol(float[sample_count], "sample_slots")
-            local event_slots_sym = symbol(float[event_count], "event_slots")
-            local voice_slots_sym = symbol(float[voice_count], "voice_slots")
-            local state_slots_q = state_count > 0 and `([&float]([state_raw_sym])) or nil
-            local ctx = {
-                diagnostics = {},
-                BS = buffer_size,
-                sample_rate = self.transport.sample_rate,
-                literals = self.literals,
-                literal_values = literal_values,
-                block_tick = 0,
-                block_sample = eval_tick_to_sample(self.tempo_map, 0),
-                bufs_sym = bufs_sym,
-                frames_sym = frames_sym,
-                init_slots_sym = init_slots_sym,
-                block_slots_sym = block_slots_sym,
-                sample_slots_sym = sample_slots_sym,
-                event_slots_sym = event_slots_sym,
-                voice_slots_sym = voice_slots_sym,
-                state_sym = state_slots_q,
-            }
-            local mod_units = {}; for i = 1, #self.mod_programs do mod_units[i] = self.mod_programs[i]:compile() end
-            local node_units = {}; for i = 1, #self.node_programs do node_units[i] = self.node_programs[i]:compile() end
-            local child_state_raw_q = state_count > 0 and state_raw_sym or nil_raw_state()
+        if #self.node_programs == 0 and #self.mod_programs == 0 then
+            local noop = terra(bufs: &float, frames: int32) end
+            return Unit(noop, tuple())
+        end
+
+        -- Compile every child leaf unit first.
+        local child_units = {}
+        for i = 1, #self.mod_programs  do child_units[#child_units+1] = self.mod_programs[i]:compile() end
+        for i = 1, #self.node_programs do child_units[#child_units+1] = self.node_programs[i]:compile() end
+
+        -- Build the shared rate-slot param symbols (bufs + frames only at graph level;
+        -- init/block/sample/event/voice slots are stack-allocated inside the fn body).
+        local bufs_sym   = symbol(&float, "bufs")
+        local frames_sym = symbol(int32, "frames")
+        local params = terralib.newlist({ bufs_sym, frames_sym })
+
+        -- Unit.compose: auto-builds GraphState from children's state_t fields,
+        -- injects typed per-child state_expr into annotated list.
+        return Unit.compose(child_units, params, function(state_sym, annotated, params)
+            local bufs_s   = params[1]
+            local frames_s = params[2]
+
+            -- We still need the rate slots (init/block/etc.) as locals inside the fn.
+            local init_slots   = symbol(float[init_count],   "init_slots")
+            local block_slots  = symbol(float[block_count],  "block_slots")
+            local sample_slots = symbol(float[sample_count], "sample_slots")
+            local event_slots  = symbol(float[event_count],  "event_slots")
+            local voice_slots  = symbol(float[voice_count],  "voice_slots")
+
+            local block_tick   = 0
+            local lv           = literal_values
+
             local body = terralib.newlist()
             body:insert(quote
-                for i = 0, [int32](total_floats-1) do [bufs_sym][i] = 0.0f end
-                for i = 0, [int32](init_count-1) do [init_slots_sym][i] = 0.0f end
-                for i = 0, [int32](block_count-1) do [block_slots_sym][i] = 0.0f end
-                for i = 0, [int32](sample_count-1) do [sample_slots_sym][i] = 0.0f end
-                for i = 0, [int32](event_count-1) do [event_slots_sym][i] = 0.0f end
-                for i = 0, [int32](voice_count-1) do [voice_slots_sym][i] = 0.0f end
+                var [init_slots];   var [block_slots]
+                var [sample_slots]; var [event_slots]; var [voice_slots]
+                for i = 0, [int32](total_floats-1)  do [bufs_s][i]      = 0.0f end
+                for i = 0, [int32](init_count-1)    do [init_slots][i]   = 0.0f end
+                for i = 0, [int32](block_count-1)   do [block_slots][i]  = 0.0f end
+                for i = 0, [int32](sample_count-1)  do [sample_slots][i] = 0.0f end
+                for i = 0, [int32](event_count-1)   do [event_slots][i]  = 0.0f end
+                for i = 0, [int32](voice_count-1)   do [voice_slots][i]  = 0.0f end
             end)
-            body:insert(quote [emit_runtime_ops(self, ctx)] end)
-            for i = 1, #mod_units do
-                local fn = mod_units[i].fn
-                body:insert(quote [fn]([bufs_sym], [frames_sym], & [init_slots_sym][0], & [block_slots_sym][0], & [sample_slots_sym][0], & [event_slots_sym][0], & [voice_slots_sym][0], [child_state_raw_q]) end)
+            body:insert(quote [emit_runtime_ops(self, lv, block_tick,
+                init_slots, block_slots, sample_slots, event_slots, voice_slots)] end)
+
+            -- Call each child fn. For stateful children, pass typed state pointer.
+            -- For stateless children, fn has no state parameter.
+            for _, ann in ipairs(annotated) do
+                local fn = ann.fn
+                local i_s = `&[init_slots][0]
+                local b_s = `&[block_slots][0]
+                local sa_s = `&[sample_slots][0]
+                local e_s = `&[event_slots][0]
+                local v_s = `&[voice_slots][0]
+                if ann.has_state then
+                    local se = ann.state_expr
+                    body:insert(quote [fn]([bufs_s], [frames_s], [i_s], [b_s], [sa_s], [e_s], [v_s], [se]) end)
+                else
+                    body:insert(quote [fn]([bufs_s], [frames_s], [i_s], [b_s], [sa_s], [e_s], [v_s]) end)
+                end
             end
-            for i = 1, #node_units do
-                local fn = node_units[i].fn
-                body:insert(quote [fn]([bufs_sym], [frames_sym], & [init_slots_sym][0], & [block_slots_sym][0], & [sample_slots_sym][0], & [event_slots_sym][0], & [voice_slots_sym][0], [child_state_raw_q]) end)
-            end
-            graph_fn = terra([bufs_sym], [frames_sym], [state_raw_sym])
-                var [init_slots_sym]
-                var [block_slots_sym]
-                var [sample_slots_sym]
-                var [event_slots_sym]
-                var [voice_slots_sym]
-                [body]
-            end
-        else
-            graph_fn = terra(bufs: &float, frames: int32, state_raw: &uint8) end
-        end
-        return Unit(graph_fn, state_t)
+
+            return body
+        end)
     end
 
     local function compile_track_program(self)
+        -- State composition via Unit.compose:
+        -- - graph_unit: typed state from compile_graph_program (oscillator phases etc.)
+        -- - mixer_unit: float[N] for parameter smoothing (rate-slot mechanism)
+        -- No state_raw: &uint8 anywhere. Types fall out structurally.
         local buffer_size = self.transport.buffer_size
         local n_bufs = math.max(self.total_buffers, 1)
         local total_floats = math.max(n_bufs * buffer_size, 1)
         local literal_values = {}
         for i = 1, #self.mixer_literals do literal_values[i] = self.mixer_literals[i].value end
         local rate_counts = track_runtime_slot_counts(self)
-        local init_count = math.max(rate_counts[1], 1)
-        local block_count = math.max(rate_counts[2], 1)
+        local init_count   = math.max(rate_counts[1], 1)
+        local block_count  = math.max(rate_counts[2], 1)
         local sample_count = math.max(rate_counts[3], 1)
-        local event_count = math.max(rate_counts[4], 1)
-        local voice_count = math.max(rate_counts[5], 1)
+        local event_count  = math.max(rate_counts[4], 1)
+        local voice_count  = math.max(rate_counts[5], 1)
         local mixer_state_count = math.max(self.total_state_slots, 0)
         local mixer_state_t = make_state_type(mixer_state_count)
 
-        local graph_unit = self.device_graph:compile()
-        local graph_fn = graph_unit.fn
+        local graph_unit    = self.device_graph:compile()
+        local graph_fn      = graph_unit.fn
         local graph_state_t = graph_unit.state_t
         local has_graph_state = not state_is_empty(graph_state_t)
         local has_mixer_state = not state_is_empty(mixer_state_t)
-        local track_state_t = make_struct_type("TrackState", (function()
-            local entries = terralib.newlist()
-            if has_mixer_state then entries:insert({ field = "mixer_slots", type = mixer_state_t }) end
-            if has_graph_state then entries:insert({ field = "graph_state", type = graph_state_t }) end
-            return entries
-        end)())
 
-        local graph_buf_count = math.max(self.device_graph.total_buffers * buffer_size, 1)
-        local graph_out_offset = (self.device_graph.graph.out_buf or 0) * buffer_size
-        local work_offset = self.track.work_buf * buffer_size
-        local master_left_offset = self.master_left * buffer_size
+        -- Graph nodes use a SEPARATE local buffer array (graph_bufs).
+        -- The classified compiler assigns graph node buffer indices independently
+        -- from the track-level mixer indices (work_buf, master_left, master_right).
+        -- Mixing them into a single flat array causes index collisions (e.g., a node
+        -- out_buf=2 colliding with master_left=2). Separate arrays eliminate this.
+        -- The graph output is copied into track bufs at work_offset after the graph runs.
+        local graph_buf_count     = math.max(self.device_graph.total_buffers * buffer_size, 1)
+        local graph_out_offset    = (self.device_graph.graph and self.device_graph.graph.out_buf or 0) * buffer_size
+        local work_offset         = self.track.work_buf * buffer_size
+        local master_left_offset  = self.master_left  * buffer_size
         local master_right_offset = self.master_right * buffer_size
 
+        -- Build the composed track state: { mixer_slots: float[N]?, graph_state: GraphState? }
+        local track_state_entries = terralib.newlist()
+        if has_mixer_state then track_state_entries:insert({ field = "mixer_slots", type = mixer_state_t }) end
+        if has_graph_state  then track_state_entries:insert({ field = "graph_state", type = graph_state_t }) end
+        local track_state_t = make_struct_type("TrackState", track_state_entries)
+        local has_track_state = not state_is_empty(track_state_t)
+
+        local clip_units   = {}; for i = 1, #self.clip_programs   do clip_units[i]   = self.clip_programs[i]:compile()   end
+        local send_units   = {}; for i = 1, #self.send_programs   do send_units[i]   = self.send_programs[i]:compile()   end
+        local mix_units    = {}; for i = 1, #self.mix_programs    do mix_units[i]    = self.mix_programs[i]:compile()    end
+        local output_units = {}; for i = 1, #self.output_programs do output_units[i] = self.output_programs[i]:compile() end
+
+        local has_work = #self.clip_programs > 0 or #self.send_programs > 0
+            or #self.mix_programs > 0 or #self.output_programs > 0 or graph_fn ~= nil
+
         local track_fn
-        if #self.clip_programs > 0 or #self.send_programs > 0 or #self.mix_programs > 0 or #self.output_programs > 0 or graph_fn ~= nil then
-            local bufs_sym = symbol(float[total_floats], "bufs")
-            local graph_bufs_sym = symbol(float[graph_buf_count], "graph_bufs")
-            local init_slots_sym = symbol(float[init_count], "init_slots")
-            local block_slots_sym = symbol(float[block_count], "block_slots")
-            local sample_slots_sym = symbol(float[sample_count], "sample_slots")
-            local event_slots_sym = symbol(float[event_count], "event_slots")
-            local voice_slots_sym = symbol(float[voice_count], "voice_slots")
-            local frames_sym = symbol(int32, "frames")
-            local ol_sym = symbol(&float, "output_left")
-            local or_sym = symbol(&float, "output_right")
-            local state_raw_sym = symbol(&uint8, "state_raw")
+        if has_work then
+            local ol_sym     = symbol(&float, "output_left")
+            local or_sym     = symbol(&float, "output_right")
+            local frames_sym = symbol(int32,  "frames")
+            -- State symbol: typed, not void pointer.
             local state_sym = nil
+            if has_track_state then state_sym = symbol(&track_state_t, "state") end
+            -- Mixer state: &float into mixer_slots (for rate-slot mechanism).
             local mixer_state_q = nil
-            local graph_state_raw_q = nil_raw_state()
-            if not state_is_empty(track_state_t) then
-                state_sym = symbol(&track_state_t, "state")
-                if has_mixer_state then mixer_state_q = `([&float](&(@[state_sym]).mixer_slots[0])) end
-                if has_graph_state then graph_state_raw_q = `([&uint8](&(@[state_sym]).graph_state)) end
+            if has_mixer_state and state_sym then
+                mixer_state_q = `([&float](&(@[state_sym]).mixer_slots[0]))
             end
-            local ctx = {
-                diagnostics = {},
-                BS = buffer_size,
-                sample_rate = self.transport.sample_rate,
-                literals = self.mixer_literals,
-                literal_values = literal_values,
-                block_tick = 0,
-                block_sample = eval_tick_to_sample(self.tempo_map, 0),
-                param_bindings = self.mixer_param_bindings,
-                param_meta = self.mixer_params,
-                mod_slots = L(),
-                mod_routes = L(),
-                bufs_sym = bufs_sym,
-                frames_sym = frames_sym,
-                init_slots_sym = init_slots_sym,
-                block_slots_sym = block_slots_sym,
-                sample_slots_sym = sample_slots_sym,
-                event_slots_sym = event_slots_sym,
-                voice_slots_sym = voice_slots_sym,
-                state_sym = mixer_state_q,
-            }
+            -- Graph state: typed pointer into graph_state field.
+            local graph_state_q = nil
+            if has_graph_state and state_sym then
+                graph_state_q = `(&(@[state_sym]).graph_state)
+            end
+
+            -- Track-level flat buffer array (for mixer jobs only: mix, output, clips, sends).
+            -- Graph nodes operate on their own separate graph_bufs to avoid index collisions.
+            local bufs_sym         = symbol(float[total_floats],      "bufs")
+            local graph_bufs_sym   = symbol(float[graph_buf_count],   "graph_bufs")
+            local init_slots_sym   = symbol(float[init_count],        "init_slots")
+            local block_slots_sym  = symbol(float[block_count],       "block_slots")
+            local sample_slots_sym = symbol(float[sample_count],      "sample_slots")
+            local event_slots_sym  = symbol(float[event_count],       "event_slots")
+            local voice_slots_sym  = symbol(float[voice_count],       "voice_slots")
+
+            local lv = literal_values
+            local block_tick = 0
+
             local body = terralib.newlist()
             body:insert(quote
-                for i = 0, [int32](total_floats-1) do [bufs_sym][i] = 0.0f end
-                for i = 0, [int32](graph_buf_count-1) do [graph_bufs_sym][i] = 0.0f end
-                for i = 0, [int32](init_count-1) do [init_slots_sym][i] = 0.0f end
-                for i = 0, [int32](block_count-1) do [block_slots_sym][i] = 0.0f end
-                for i = 0, [int32](sample_count-1) do [sample_slots_sym][i] = 0.0f end
-                for i = 0, [int32](event_count-1) do [event_slots_sym][i] = 0.0f end
-                for i = 0, [int32](voice_count-1) do [voice_slots_sym][i] = 0.0f end
+                var [bufs_sym];       var [graph_bufs_sym]
+                var [init_slots_sym]; var [block_slots_sym]
+                var [sample_slots_sym]; var [event_slots_sym]; var [voice_slots_sym]
+                for i = 0, [int32](total_floats-1)    do [bufs_sym][i]         = 0.0f end
+                for i = 0, [int32](graph_buf_count-1) do [graph_bufs_sym][i]   = 0.0f end
+                for i = 0, [int32](init_count-1)      do [init_slots_sym][i]   = 0.0f end
+                for i = 0, [int32](block_count-1)     do [block_slots_sym][i]  = 0.0f end
+                for i = 0, [int32](sample_count-1)    do [sample_slots_sym][i] = 0.0f end
+                for i = 0, [int32](event_count-1)     do [event_slots_sym][i]  = 0.0f end
+                for i = 0, [int32](voice_count-1)     do [voice_slots_sym][i]  = 0.0f end
             end)
             body:insert(quote [emit_runtime_ops({
-                init_ops = self.mixer_init_ops, block_ops = self.mixer_block_ops, block_pts = self.mixer_block_pts,
-                sample_ops = self.mixer_sample_ops, event_ops = self.mixer_event_ops, voice_ops = self.mixer_voice_ops,
-            }, ctx)] end)
-            local clip_units = {}; for i = 1, #self.clip_programs do clip_units[i] = self.clip_programs[i]:compile() end
-            local send_units = {}; for i = 1, #self.send_programs do send_units[i] = self.send_programs[i]:compile() end
-            local mix_units = {}; for i = 1, #self.mix_programs do mix_units[i] = self.mix_programs[i]:compile() end
-            local output_units = {}; for i = 1, #self.output_programs do output_units[i] = self.output_programs[i]:compile() end
+                init_ops   = self.mixer_init_ops,   block_ops  = self.mixer_block_ops,
+                block_pts  = self.mixer_block_pts,  sample_ops = self.mixer_sample_ops,
+                event_ops  = self.mixer_event_ops,  voice_ops  = self.mixer_voice_ops,
+            }, lv, block_tick,
+                init_slots_sym, block_slots_sym, sample_slots_sym, event_slots_sym, voice_slots_sym)] end)
+
+            -- Run the graph fn on graph_bufs (separate from track bufs).
+            -- Then copy the graph output into bufs at work_offset.
             if graph_fn then
-                body:insert(quote [graph_fn](&[graph_bufs_sym][0], [frames_sym], [graph_state_raw_q]) end)
+                if graph_state_q then
+                    local gs = graph_state_q
+                    body:insert(quote [graph_fn](&[graph_bufs_sym][0], [frames_sym], [gs]) end)
+                else
+                    body:insert(quote [graph_fn](&[graph_bufs_sym][0], [frames_sym]) end)
+                end
                 body:insert(quote
                     var go = [int32](graph_out_offset)
                     var wo = [int32](work_offset)
-                    for i = 0, [frames_sym] do [bufs_sym][wo+i] = [bufs_sym][wo+i] + [graph_bufs_sym][go+i] end
+                    for i = 0, [frames_sym] do
+                        [bufs_sym][wo+i] = [bufs_sym][wo+i] + [graph_bufs_sym][go+i]
+                    end
                 end)
             end
-            local mixer_state_raw_q = has_mixer_state and state_raw_sym or nil_raw_state()
-            for i = 1, #clip_units do local fn = clip_units[i].fn
-                body:insert(quote [fn](&[bufs_sym][0], [frames_sym], & [init_slots_sym][0], & [block_slots_sym][0], & [sample_slots_sym][0], & [event_slots_sym][0], & [voice_slots_sym][0], [mixer_state_raw_q]) end) end
-            for i = 1, #send_units do local fn = send_units[i].fn
-                body:insert(quote [fn](&[bufs_sym][0], [frames_sym], & [init_slots_sym][0], & [block_slots_sym][0], & [sample_slots_sym][0], & [event_slots_sym][0], & [voice_slots_sym][0], [mixer_state_raw_q]) end) end
-            for i = 1, #mix_units do local fn = mix_units[i].fn
-                body:insert(quote [fn](&[bufs_sym][0], [frames_sym], & [init_slots_sym][0], & [block_slots_sym][0], & [sample_slots_sym][0], & [event_slots_sym][0], & [voice_slots_sym][0], [mixer_state_raw_q]) end) end
-            for i = 1, #output_units do local fn = output_units[i].fn
-                body:insert(quote [fn](&[bufs_sym][0], [frames_sym], & [init_slots_sym][0], & [block_slots_sym][0], & [sample_slots_sym][0], & [event_slots_sym][0], & [voice_slots_sym][0], [mixer_state_raw_q]) end) end
+
+            -- Mixer leaf fns: all stateless (no state param).
+            local function call_stateless_units(units)
+                for _, u in ipairs(units) do
+                    local fn = u.fn
+                    body:insert(quote [fn](&[bufs_sym][0], [frames_sym],
+                        &[init_slots_sym][0], &[block_slots_sym][0],
+                        &[sample_slots_sym][0], &[event_slots_sym][0],
+                        &[voice_slots_sym][0]) end)
+                end
+            end
+            call_stateless_units(clip_units)
+            call_stateless_units(send_units)
+            call_stateless_units(mix_units)
+            call_stateless_units(output_units)
+
             body:insert(quote
                 var lo = [int32](master_left_offset)
                 var ro = [int32](master_right_offset)
-                for i = 0, [frames_sym] do [ol_sym][i] = [ol_sym][i] + [bufs_sym][lo+i]; [or_sym][i] = [or_sym][i] + [bufs_sym][ro+i] end
+                for i = 0, [frames_sym] do
+                    [ol_sym][i] = [ol_sym][i] + [bufs_sym][lo+i]
+                    [or_sym][i] = [or_sym][i] + [bufs_sym][ro+i]
+                end
             end)
+
             if state_sym then
-                track_fn = terra([ol_sym], [or_sym], [frames_sym], [state_raw_sym])
-                    var [bufs_sym]
-                    var [graph_bufs_sym]
-                    var [init_slots_sym]
-                    var [block_slots_sym]
-                    var [sample_slots_sym]
-                    var [event_slots_sym]
-                    var [voice_slots_sym]
-                    var [state_sym] = [&track_state_t]([state_raw_sym])
+                local ss = state_sym
+                track_fn = terra([ol_sym], [or_sym], [frames_sym], [ss])
                     [body]
                 end
             else
-                track_fn = terra([ol_sym], [or_sym], [frames_sym], [state_raw_sym])
-                    var [bufs_sym]
-                    var [graph_bufs_sym]
-                    var [init_slots_sym]
-                    var [block_slots_sym]
-                    var [sample_slots_sym]
-                    var [event_slots_sym]
-                    var [voice_slots_sym]
+                track_fn = terra([ol_sym], [or_sym], [frames_sym])
                     [body]
                 end
             end
         else
-            track_fn = terra(output_left: &float, output_right: &float, frames: int32, state_raw: &uint8) end
+            track_fn = terra(output_left: &float, output_right: &float, frames: int32) end
         end
         return Unit(track_fn, track_state_t)
     end
 
     local function compile_project(self)
+        -- Use Unit.compose: project state = composition of all track states.
+        -- No void pointers. KS.alloc_state works via kernel:state_type() = ProjectState.
         local track_units = {}
-        local project_entries = terralib.newlist()
-        local track_fields = {}
         for i = 1, #self.track_programs do
-            local tu = self.track_programs[i]:compile()
-            track_units[i] = tu
-            if not state_is_empty(tu.state_t) then
-                local field = "track_" .. tostring(i)
-                project_entries:insert({ field = field, type = tu.state_t })
-                track_fields[i] = field
-            end
+            track_units[i] = self.track_programs[i]:compile()
         end
-        local project_state_t = make_struct_type("ProjectState", project_entries)
-        local render_fn
-        if #track_units > 0 then
-            local ol = symbol(&float, "output_left")
-            local or_ = symbol(&float, "output_right")
-            local frames = symbol(int32, "frames")
-            local state_raw = symbol(&uint8, "state_raw")
-            local state_sym = nil
-            if not state_is_empty(project_state_t) then state_sym = symbol(&project_state_t, "state") end
-            local body = terralib.newlist()
-            body:insert(quote for i = 0, [frames] do [ol][i] = 0.0f; [or_][i] = 0.0f end end)
-            for i = 1, #track_units do
-                local fn = track_units[i].fn
-                local child_state_raw_q = nil_raw_state()
-                if track_fields[i] then child_state_raw_q = `([&uint8](&(@[state_sym]).[track_fields[i]])) end
-                body:insert(quote [fn]([ol], [or_], [frames], [child_state_raw_q]) end)
-            end
-            if state_sym then
-                render_fn = terra([ol], [or_], [frames], [state_raw])
-                    var [state_sym] = [&project_state_t]([state_raw])
-                    [body]
+
+        local ol  = symbol(&float, "output_left")
+        local or_ = symbol(&float, "output_right")
+        local frames = symbol(int32, "frames")
+        local params = terralib.newlist({ ol, or_, frames })
+
+        local project_unit = Unit.compose(track_units, params,
+            function(state_sym, annotated, params)
+                local ol_s = params[1]
+                local or_s = params[2]
+                local frames_s = params[3]
+                local body = terralib.newlist()
+                body:insert(quote
+                    for i = 0, [frames_s] do [ol_s][i] = 0.0f; [or_s][i] = 0.0f end
+                end)
+                for _, ann in ipairs(annotated) do
+                    local fn = ann.fn
+                    if ann.has_state then
+                        local se = ann.state_expr
+                        body:insert(quote [fn]([ol_s], [or_s], [frames_s], [se]) end)
+                    else
+                        body:insert(quote [fn]([ol_s], [or_s], [frames_s]) end)
+                    end
                 end
-            else
-                render_fn = terra([ol], [or_], [frames], [state_raw]) [body] end
-            end
-        else
-            render_fn = terra(output_left: &float, output_right: &float, frames: int32, state_raw: &uint8)
-                for i = 0, frames do output_left[i] = 0.0f; output_right[i] = 0.0f end
-            end
-        end
-        local init_fn
+                return body
+            end)
+
+        -- Wrap into K.Project.
+        -- The internal fn is fully typed: (ol, or, frames) or (ol, or, frames, state: &ProjectState).
+        -- The audio ABI boundary is (ol, or, frames, state_raw: &uint8): one explicit cast here,
+        -- justified by the external audio callback contract. No void pointers inside.
+        local project_state_t = project_unit.state_t
+        local inner_fn = project_unit.fn
+        local render_fn, init_fn
         if state_is_empty(project_state_t) then
+            render_fn = terra(ol: &float, or_: &float, frames: int32, state_raw: &uint8)
+                [inner_fn](ol, or_, frames)
+            end
             init_fn = terra(state_raw: &uint8) end
         else
+            render_fn = terra(ol: &float, or_: &float, frames: int32, state_raw: &uint8)
+                [inner_fn](ol, or_, frames, [&project_state_t](state_raw))
+            end
             init_fn = terra(state_raw: &uint8)
                 C.memset(state_raw, 0, [uint64](terralib.sizeof(project_state_t)))
             end

@@ -62,23 +62,30 @@ return function(E, A)
         return A.AudioHint
     end
 
-    function M.launch_mode(m)
-        if m == nil then return A.Trigger end
+    function M.launch_play_mode(m)
+        if m == nil then return A.TriggerFromStart end
         local name = m.kind
         if name and A[name] then return A[name] end
-        return A.Trigger
+        return A.TriggerFromStart
     end
 
-    function M.follow_kind(fk)
-        if fk == nil then return A.FNone end
-        local name = fk.kind
+    function M.launch_release_action(r)
+        if r == nil then return A.RAContinue end
+        local name = r.kind
         if name and A[name] then return A[name] end
-        return A.FNone
+        return A.RAContinue
+    end
+
+    function M.next_action_kind(k)
+        if k == nil then return A.NAStop end
+        local name = k.kind
+        if name and A[name] then return A[name] end
+        return A.NAStop
     end
 
     function M.slot_content(sc)
         if sc == nil then return A.EmptySlot end
-        if sc.kind == "ClipSlot" then return A.ClipSlot(sc.clip_id) end
+        if sc.kind == "ClipSlot" then return A.ClipSlot(sc.launcher_clip_id or sc.clip_id or 0) end
         if sc.kind == "StopSlot" then return A.StopSlot end
         return A.EmptySlot
     end

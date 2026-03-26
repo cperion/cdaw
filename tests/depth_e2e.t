@@ -65,18 +65,18 @@ print("Test 1: Classify builds literal tables from static params")
 do
     local project = D.Editor.Project(
         "literal_test", nil, 1,
-        D.Editor.Transport(44100, 512, 120, 0, 4, 4, D.Editor.QNone, false, nil),
-        L{D.Editor.Track(1, "Track 1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+        D.Editor.Transport(44100, 512, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
+        L{D.Editor.Track(1, "Track 1", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
             D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(-0.3), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                     10, "Gain", D.Authored.GainNode,
                     L{D.Editor.ParamValue(0, "gain", 1, 0, 4, D.Editor.StaticValue(0.75), D.Editor.Replace, D.Editor.NoSmoothing)},
-                    L(), nil, nil, nil, true, nil))
+                    L(), nil, nil, nil, true, true, nil))
             }),
-            L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
-        L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
+            L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil)},
+        L(), L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
 
     local classified = project:lower():resolve(TICKS_PER_BEAT):classify()
@@ -91,18 +91,18 @@ print("\nTest 2: Schedule allocates buffers and builds programs")
 do
     local project = D.Editor.Project(
         "schedule_test", nil, 1,
-        D.Editor.Transport(44100, 512, 120, 0, 4, 4, D.Editor.QNone, false, nil),
-        L{D.Editor.Track(1, "Track 1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+        D.Editor.Transport(44100, 512, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
+        L{D.Editor.Track(1, "Track 1", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
             D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                     10, "Gain", D.Authored.GainNode,
                     L{D.Editor.ParamValue(0, "gain", 1, 0, 4, D.Editor.StaticValue(0.75), D.Editor.Replace, D.Editor.NoSmoothing)},
-                    L(), nil, nil, nil, true, nil))
+                    L(), nil, nil, nil, true, true, nil))
             }),
-            L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
-        L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
+            L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil)},
+        L(), L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
 
     local scheduled = project:lower():resolve(TICKS_PER_BEAT):classify():schedule()
@@ -121,18 +121,18 @@ print("\nTest 3: Kernel compiles a callable entry function")
 do
     local project = D.Editor.Project(
         "kernel_test", nil, 1,
-        D.Editor.Transport(44100, 512, 120, 0, 4, 4, D.Editor.QNone, false, nil),
-        L{D.Editor.Track(1, "Track 1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+        D.Editor.Transport(44100, 512, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
+        L{D.Editor.Track(1, "Track 1", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
             D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                     10, "Gain", D.Authored.GainNode,
                     L{D.Editor.ParamValue(0, "gain", 1, 0, 4, D.Editor.StaticValue(0.75), D.Editor.Replace, D.Editor.NoSmoothing)},
-                    L(), nil, nil, nil, true, nil))
+                    L(), nil, nil, nil, true, true, nil))
             }),
-            L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
-        L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
+            L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil)},
+        L(), L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
 
     local kernel = project:lower():resolve(TICKS_PER_BEAT):classify():schedule():compile()
@@ -146,9 +146,9 @@ print("\nTest 4: Resolved/Classified/Scheduled slices have real content")
 do
     local project = D.Editor.Project(
         "flatten_test", nil, 1,
-        D.Editor.Transport(44100, 512, 120, 0, 4, 4, D.Editor.QNone, false, nil),
+        D.Editor.Transport(44100, 512, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
         L{
-            D.Editor.Track(1, "Track 1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+            D.Editor.Track(1, "Track 1", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
                 D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.DeviceChain(L{
@@ -158,22 +158,22 @@ do
                             D.Editor.ParamValue(0, "freq", 1000, 20, 20000, D.Editor.StaticValue(1000), D.Editor.Replace, D.Editor.NoSmoothing),
                             D.Editor.ParamValue(1, "gain", 0, -24, 24, D.Editor.StaticValue(3.5), D.Editor.Replace, D.Editor.NoSmoothing),
                             D.Editor.ParamValue(2, "q", 1, 0.1, 10, D.Editor.StaticValue(1.4), D.Editor.Replace, D.Editor.NoSmoothing),
-                        }, L(), nil, nil, nil, true, nil)),
+                        }, L(), nil, nil, nil, true, true, nil)),
                     D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                         11, "Comp", D.Authored.CompressorNode,
                         L{
                             D.Editor.ParamValue(0, "threshold", -20, -60, 0, D.Editor.StaticValue(-20), D.Editor.Replace, D.Editor.NoSmoothing),
                             D.Editor.ParamValue(1, "ratio", 4, 1, 20, D.Editor.StaticValue(4), D.Editor.Replace, D.Editor.NoSmoothing),
-                        }, L(), nil, nil, nil, true, nil))
+                        }, L(), nil, nil, nil, true, true, nil))
                 }),
-                L(), L(), L(), nil, nil, false, false, false, false, false, nil),
-            D.Editor.Track(2, "Track 2", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+                L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil),
+            D.Editor.Track(2, "Track 2", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
                 D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.6), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.DeviceChain(L{}),
-                L(), L(), L(), nil, nil, false, false, false, false, false, nil),
+                L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil),
         },
-        L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 140)}, L()),
+        L(), L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 140)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
 
     local resolved = project:lower():resolve(TICKS_PER_BEAT)
@@ -203,8 +203,8 @@ print("\nTest 5: Automation curves become block ops/program ops")
 do
     local project = D.Editor.Project(
         "automation_test", nil, 1,
-        D.Editor.Transport(44100, 128, 120, 0, 4, 4, D.Editor.QNone, false, nil),
-        L{D.Editor.Track(1, "Track 1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+        D.Editor.Transport(44100, 128, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
+        L{D.Editor.Track(1, "Track 1", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
             D.Editor.ParamValue(0, "vol", 1, 0, 4,
                 D.Editor.AutomationRef(D.Editor.AutoCurve(L{D.Editor.AutoPoint(0, 0.2), D.Editor.AutoPoint(1, 0.8)}, D.Editor.Linear)),
                 D.Editor.Replace, D.Editor.NoSmoothing),
@@ -213,10 +213,10 @@ do
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                     9, "Square", D.Authored.SquareOsc,
                     L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
-                    L(), nil, nil, nil, true, nil))
+                    L(), nil, nil, nil, true, true, nil))
             }),
-            L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
-        L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
+            L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil)},
+        L(), L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
 
     local resolved = project:lower():resolve(TICKS_PER_BEAT)

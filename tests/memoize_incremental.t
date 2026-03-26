@@ -24,35 +24,36 @@ end
 
 local function make_track(track_id, name, osc_id, gain_id, freq, gain, vol, pan)
     return D.Editor.Track(
-        track_id, name, 2, D.Editor.AudioTrack, D.Editor.NoInput,
+        track_id, name, nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
         static_param(0, "vol", vol, 0, 4),
         static_param(1, "pan", pan, -1, 1),
         D.Editor.DeviceChain(L{
             D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                 osc_id, name .. " Osc", D.Authored.SquareOsc,
                 L{static_param(0, "freq", freq, 1, 20000)},
-                L(), nil, nil, nil, true, nil
+                L(), nil, nil, nil, true, true, nil
             )),
             D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                 gain_id, name .. " Gain", D.Authored.GainNode,
                 L{static_param(0, "gain", gain, 0, 4)},
-                L(), nil, nil, nil, true, nil
+                L(), nil, nil, nil, true, true, nil
             ))
         }),
-        L(), L(), L(), nil, nil,
-        false, false, false, false, false, nil
+        L(), L(), L(), L(), nil,
+        true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil
     )
 end
 
 local function make_project(buffer_size)
     return D.Editor.Project(
         "memoize_incremental", nil, 1,
-        D.Editor.Transport(44100, buffer_size or 64, 120, 0, 4, 4, D.Editor.QNone, false, nil),
+        D.Editor.Transport(44100, buffer_size or 64, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
         L{
             make_track(1, "Track 1", 10, 11, 110, 0.5, 0.8, 0.0),
             make_track(2, "Track 2", 20, 21, 220, 0.25, 0.6, 0.0),
         },
-        L(),
+        L(),  -- scenes
+        L(),  -- cue_markers
         D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L())
     )
@@ -284,8 +285,8 @@ do
     local before = snapshot(base)
     local edited = D.Editor.Project(
         base.name, base.author, base.format_version,
-        D.Editor.Transport(44100, 128, 120, 0, 4, 4, D.Editor.QNone, false, nil),
-        base.tracks, base.scenes, base.tempo_map, base.assets
+        D.Editor.Transport(44100, 128, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
+        base.tracks, base.scenes, base.cue_markers, base.tempo_map, base.assets
     )
     local after = snapshot(edited)
 

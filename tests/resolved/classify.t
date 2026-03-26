@@ -13,12 +13,11 @@ local function approx(a,b,t) return math.abs(a-b) < (t or 0.001) end
 
 print("1. resolved.transport.classify")
 do
-    local t = D.Resolved.Transport(48000, 512, 140, 0.1, 3, 8, 4, true, 1920, 7680)
+    local t = D.Resolved.Transport(48000, 512, 140, 3, 8, 4, true, 1920, 7680, false, false, 0, 0, 0, 0, 0)
     local r = t:classify()
     check(r.sample_rate == 48000, "sample_rate")
     check(r.buffer_size == 512, "buffer_size")
     check(r.bpm == 140, "bpm")
-    check(approx(r.swing, 0.1), "swing")
     check(r.looping == true, "looping")
     print("  PASS")
 end
@@ -64,7 +63,7 @@ end
 print("4. resolved.track_slice.classify")
 do
     local ts = D.Resolved.TrackSlice(
-        D.Resolved.Track(5, "Bass", 2, 1, 1, 0, 0, 1, 10, 0, 0, 0, 0, 0, 0, nil, nil, true, false, false, false, true),
+        D.Resolved.Track(5, "Bass", 2, 1, 1, 0, 0, 1, 10, nil, nil, true, false, false, false, true),
         L{
             D.Resolved.Param(0, 0, "vol", 1, 0, 4, D.Resolved.ParamSourceRef(0, 0.7, nil), 0, 0, 0),
             D.Resolved.Param(1, 0, "pan", 0, -1, 1, D.Resolved.ParamSourceRef(0, 0.3, nil), 0, 0, 0)
@@ -86,18 +85,18 @@ print("5. resolved.project.classify")
 do
     local project = D.Editor.Project(
         "Test", nil, 1,
-        D.Editor.Transport(44100, 256, 120, 0, 4, 4, D.Editor.QNone, false, nil),
-        L{D.Editor.Track(1, "T1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+        D.Editor.Transport(44100, 256, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
+        L{D.Editor.Track(1, "T1", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
             D.Editor.ParamValue(0, "v", 1, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "p", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                     10, "G", D.Authored.GainNode,
                     L{D.Editor.ParamValue(0, "g", 1, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing)},
-                    L(), nil, nil, nil, true, nil))
+                    L(), nil, nil, nil, true, true, nil))
             }),
-            L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
-        L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
+            L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil)},
+        L(), L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
     local c = project:lower():resolve(TICKS_PER_BEAT):classify()
     check(#c.track_slices == 1, "classified track slice")

@@ -12,12 +12,21 @@ local maps = require('src/support/enum_maps')(types.Editor, types.Authored)
         if self.loop_range then
             loop_range = A.TimeRange(self.loop_range.start_beats, self.loop_range.end_beats)
         end
+        local groove_enabled = self.groove ~= nil and self.groove.enabled or false
+        local g = self.groove
         return A.Transport(
             self.sample_rate, self.buffer_size,
-            self.bpm, self.swing,
+            self.bpm,
             self.time_sig_num, self.time_sig_den,
             maps.quantize(self.launch_quantize),
-            self.looping, loop_range
+            self.looping, loop_range,
+            self.fill_active,
+            groove_enabled,
+            g and (g.shuffle_rate == types.Editor.Shuffle1_16 and 1 or 0) or 0,
+            g and g.shuffle_amount or 0,
+            g and (g.accent_rate == types.Editor.Shuffle1_16 and 1 or 0) or 0,
+            g and g.accent_amount or 0,
+            g and g.accent_phase or 0
         )
     end
 

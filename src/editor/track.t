@@ -26,11 +26,17 @@ local maps = require('src/support/enum_maps')(types.Editor, types.Authored)
         local sends = L()
         for i = 1, #self.sends do sends[i] = self.sends[i]:lower() end
 
+        -- Derive output_track_id from TrackFeedOutput; others map to nil.
+        local output_track_id = nil
+        if self.output and self.output.kind == "TrackFeedOutput" then
+            output_track_id = self.output.track_id
+        end
+
         return A.Track(
             self.id, self.name, self.channels,
             input, volume, pan, device_graph,
             clips, slots, sends,
-            self.output_track_id, self.group_track_id,
+            output_track_id, self.group_track_id,
             self.muted, self.soloed, self.armed, self.monitor_input, self.phase_invert
         )
     end

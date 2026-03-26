@@ -59,6 +59,7 @@ local DAW = schema DAW
             transport: Transport
             tracks: Track*
             scenes: Scene*
+            cue_markers: CueMarker*
             tempo_map: TempoMap
             --- Shared cross-phase type. AssetBank lives in Authored because the
             --- algebra is identical at both layers.
@@ -66,17 +67,45 @@ local DAW = schema DAW
             unique
         end
 
+        --- Named position marker on the arranger timeline.
+        --- Used for navigation, arrangement structure (verse/chorus/bridge).
+        record CueMarker
+            id: number
+            name: string
+            at_beats: number
+            color: string?
+        end
+
         --- Audio engine and playback transport settings.
         record Transport
             sample_rate: number
             buffer_size: number
             bpm: number
-            swing: number
             time_sig_num: number
             time_sig_den: number
             launch_quantize: Quantize
             looping: boolean
             loop_range: TimeRange?
+            --- Fill button state: used by OccurrenceMode.OccFillOn/Off operators.
+            fill_active: boolean
+            groove: GlobalGroove?
+        end
+
+        --- Project-level groove settings applied to all shuffle-enabled clips.
+        record GlobalGroove
+            enabled: boolean
+            shuffle_rate: ShuffleRate
+            shuffle_amount: number
+            accent_rate: ShuffleRate
+            accent_amount: number
+            accent_phase: number
+        end
+
+        --- Groove subdivision rate.
+        enum ShuffleRate
+            doc "Beat subdivision at which groove is applied."
+            Shuffle1_8
+            Shuffle1_16
         end
 
         --- Beat-based time range for loop boundaries.
@@ -149,23 +178,52 @@ local DAW = schema DAW
         record Track
             id: number
             name: string
+            color: string?
+            comment: string?
             channels: number
             kind: TrackKind
             input: TrackInput?
+            output: TrackOutput
             volume: ParamValue
             pan: ParamValue
             devices: DeviceChain
             clips: Clip*
+            launcher_clips: LauncherClip*
             launcher_slots: Slot*
             sends: Send*
-            output_track_id: number?
             group_track_id: number?
+            active: boolean
             muted: boolean
             soloed: boolean
             armed: boolean
             monitor_input: boolean
             phase_invert: boolean
+            crossfade_mode: CrossfadeMode
+            remote_controls: RemoteControl*
             meta: UserMeta?
+        end
+
+        --- Track output routing destination.
+        enum TrackOutput
+            doc "Where the track sends its audio output."
+            MasterOutput
+            TrackFeedOutput { track_id: number }
+            HardwareOutput { bus_name: string }
+        end
+
+        --- Crossfader A/B assignment for each track.
+        enum CrossfadeMode
+            doc "Global crossfader participation."
+CrossA
+            CrossBoth
+            CrossB
+        end
+
+        --- One assignable remote control knob slot (for MIDI controller mapping).
+        record RemoteControl
+            slot: number
+            label: string?
+            param_ref: ParamOwnerRef?
         end
 
         --- Track classification for defaults and UI.
@@ -174,6 +232,7 @@ local DAW = schema DAW
             AudioTrack
             InstrumentTrack
             HybridTrack
+            FXTrack
             GroupTrack
             MasterTrack
         end
@@ -200,6 +259,7 @@ local DAW = schema DAW
             SelectorDevice { body: SelectorContainer }
             SplitDevice { body: SplitContainer }
             GridDevice { body: GridContainer }
+            DrumMachineDevice { body: DrumMachineContainer }
         end
 
         --- Plain device panel payload.
@@ -214,6 +274,7 @@ local DAW = schema DAW
             note_fx: NoteFXLane?
             post_fx: AudioFXLane?
             preset: PresetRef?
+            active: boolean
             enabled: boolean
             meta: UserMeta?
         end
@@ -228,6 +289,7 @@ local DAW = schema DAW
             note_fx: NoteFXLane?
             post_fx: AudioFXLane?
             preset: PresetRef?
+            active: boolean
             enabled: boolean
             meta: UserMeta?
         end
@@ -254,6 +316,7 @@ local DAW = schema DAW
             note_fx: NoteFXLane?
             post_fx: AudioFXLane?
             preset: PresetRef?
+            active: boolean
             enabled: boolean
             meta: UserMeta?
         end
@@ -290,6 +353,7 @@ local DAW = schema DAW
             note_fx: NoteFXLane?
             post_fx: AudioFXLane?
             preset: PresetRef?
+            active: boolean
             enabled: boolean
             meta: UserMeta?
         end
@@ -324,7 +388,37 @@ local DAW = schema DAW
             note_fx: NoteFXLane?
             post_fx: AudioFXLane?
             preset: PresetRef?
+            active: boolean
             enabled: boolean
+            meta: UserMeta?
+        end
+
+        --- Drum machine container. Up to 32 pads, each with independent chain.
+        --- Each pad owns its note assignment, volume/pan, mute/solo, and device chain.
+        record DrumMachineContainer
+            id: number
+            name: string
+            pads: DrumPad*
+            params: ParamValue*
+            modulators: Modulator*
+            post_fx: AudioFXLane?
+            preset: PresetRef?
+            active: boolean
+            enabled: boolean
+            meta: UserMeta?
+        end
+
+        --- One drum pad with its note assignment and signal chain.
+        record DrumPad
+            id: number
+            note: number
+            name: string?
+            color: string?
+            chain: DeviceChain
+            volume: ParamValue
+            pan: ParamValue
+            muted: boolean
+            soloed: boolean
             meta: UserMeta?
         end
 
@@ -429,8 +523,21 @@ local DAW = schema DAW
             target_param_id: number
             depth: number
             bipolar: boolean
+            transfer: ModTransferFn
             scale_modulator_id: number?
             scale_param_id: number?
+        end
+
+        --- Transfer function shape applied to a modulation connection before summing.
+        enum ModTransferFn
+            doc "Curve applied to modulator signal before it reaches the destination."
+            MTLinearBipolar
+            MTPositivesUnipolar
+            MTNegativesUnipolar
+            MTAbsoluteUnipolar
+            MTTowardZeroUnipolar
+            MTExponentialBipolar
+            MTLogarithmicBipolar
         end
 
         --- User-facing parameter value with source, combine, and smoothing.
@@ -500,18 +607,57 @@ local DAW = schema DAW
             TriggerHint
         end
 
-        --- Audio/note clip on a track timeline.
+        --- Arranger timeline clip. Position is absolute (start_beats on the timeline).
+        --- Distinct from LauncherClip: arranger and launcher clips are separate pools;
+        --- copying between them creates independent instances.
         record Clip
             id: number
+            name: string?
+            color: string?
             content: ClipContent
             start_beats: number
             duration_beats: number
             source_offset_beats: number
+            loop_enabled: boolean
+            loop_start_beats: number
+            loop_length_beats: number
             lane: number
             muted: boolean
             gain: ParamValue
             fade_in: FadeSpec?
             fade_out: FadeSpec?
+            --- Per-clip time signature override for display (nil = inherit project).
+            time_sig_num: number?
+            time_sig_den: number?
+            --- Global groove participation. shuffle_accent scales the project groove amount.
+            shuffle_enabled: boolean
+            shuffle_accent: number
+            --- Seed for Chance operators and expression Spread. nil = random each play.
+            seed: number?
+            meta: UserMeta?
+        end
+
+        --- Launcher clip. No timeline position — triggered on demand.
+        --- Separate from Clip: copying between arranger/launcher makes new instances.
+        record LauncherClip
+            id: number
+            name: string?
+            color: string?
+            content: ClipContent
+            --- Where within the clip content playback starts.
+            play_start_beats: number
+            --- Where playback ends (nil = full length). Only applies when not looping.
+            play_stop_beats: number?
+            loop_enabled: boolean
+            loop_start_beats: number
+            loop_length_beats: number
+            muted: boolean
+            gain: ParamValue
+            time_sig_num: number?
+            time_sig_den: number?
+            shuffle_enabled: boolean
+            shuffle_accent: number
+            seed: number?
             meta: UserMeta?
         end
 
@@ -537,7 +683,47 @@ local DAW = schema DAW
             velocity: number
             release_velocity: number?
             muted: boolean
+            --- Operators: conditional/probabilistic/repetition modifiers.
+            --- All are optional; nil means the neutral/always-plays default.
+            chance: number?
+            repeats: NoteRepeats?
+            occurrence: OccurrenceMode?
+            recurrence: NoteRecurrence?
             meta: UserMeta?
+        end
+
+        --- Retrigger operator: divides a note event into repeated hits.
+        record NoteRepeats
+            --- Positive int = divide event into N pieces; negative frac = beat interval.
+            rate: number
+            --- Bipolar % packing: negative = early-dense, positive = late-dense.
+            curve: number
+            --- Target velocity at the last repeat, as bipolar % of full range.
+            velocity_end: number?
+        end
+
+        --- Occurrence operator: conditional playback based on cycle/fill/prev state.
+        enum OccurrenceMode
+            doc "Condition under which this note event plays."
+            OccAlways
+OccOnFirst
+            OccNeverFirst
+OccWithPrevious
+            OccWithoutPrevious
+OccWithPrevKey
+            OccWithoutPrevKey
+OccWithPrevChannel
+            OccWithoutPrevChannel
+OccFillOn
+            OccFillOff
+        end
+
+        --- Recurrence operator: per-note cycle timeline with step toggles.
+        record NoteRecurrence
+            --- Number of clip loops per cycle (1..8).
+            length: number
+            --- Which steps in the cycle fire (length booleans).
+            steps: boolean*
         end
 
         --- Note expression lane kind.
@@ -545,6 +731,10 @@ local DAW = schema DAW
             doc "Per-note expression parameter types."
             NotePressureExpr
             NoteTimbreExpr
+            --- Micro-pitch: per-note continuous pitch in semitones (±24st).
+            --- Polyphonic pitch curve distinct from global MIDI pitch bend.
+            NoteMicroPitchExpr
+            --- MIDI pitch bend for hardware routing via HW Instrument device.
             NotePitchBendExpr
             NoteGainExpr
             NotePanExpr
@@ -578,68 +768,106 @@ local DAW = schema DAW
             ExpoFade
         end
 
-        --- Launcher slot on a track.
+        --- Launcher slot on a track. References a LauncherClip by id.
+        --- Main behavior is used on normal trigger; alt on ALT-trigger gesture.
         record Slot
             slot_index: number
             content: SlotContent
-            behavior: LaunchBehavior
+            main: LaunchBehavior
+            alt: LaunchBehavior
             enabled: boolean
         end
 
-        --- Slot content variant.
+        --- Slot content variant. References LauncherClip pool, not arranger clips.
         enum SlotContent
             doc "What occupies a launcher slot."
             EmptySlot
-            ClipSlot { clip_id: number }
+            ClipSlot { launcher_clip_id: number }
             StopSlot
         end
 
-        --- Launch behavior settings.
+        --- One complete set of launch behaviors (main or alt).
+        --- Models Bitwig's Launch Section exactly: Q, Play Mode, on Release, Q-to-Loop.
         record LaunchBehavior
-            mode: LaunchMode
-            quantize_override: Quantize?
-            legato: boolean
-            retrigger: boolean
-            follow: FollowAction?
+            --- When the clip starts relative to the transport grid.
+            launch_quantize: Quantize?
+            --- Where within the clip content playback begins.
+            play_mode: LaunchPlayMode
+            --- What happens when the trigger gesture is released.
+            on_release: LaunchReleaseAction
+            --- Quantize to loop start point rather than clip start point.
+            quantize_to_loop: boolean
+            --- Next Action: what runs after the clip finishes / timer expires.
+            next_action: NextAction?
         end
 
-        --- Clip launch trigger mode.
-        enum LaunchMode
-            doc "How the clip responds to launch triggers."
-            Trigger
-            Gate
-            Toggle
-            Repeat
+        --- Where within the clip playback begins when triggered.
+        enum LaunchPlayMode
+            doc "Bitwig Play Mode: where in the clip to start on trigger."
+            TriggerFromStart
+            LegatoFromClipOrStart
+            LegatoFromClipOrProject
+            LegatoFromProject
         end
 
-        --- Follow action after clip finishes.
-        record FollowAction
-            kind: FollowKind
-            weight_a: number
-            weight_b: number
-            target_scene_id: number?
+        --- What happens when the trigger gesture is released.
+        enum LaunchReleaseAction
+            doc "Bitwig on Release: action taken when trigger input ends."
+            RAContinue
+            RAStop
+            RAReturn
+            RANextAction
         end
 
-        --- Follow action target selection.
-        enum FollowKind
-            doc "What happens after a clip finishes playing."
-            FNone
-            FNext
-            FPrev
-            FFirst
-            FLast
-            FOther
-            FRandom
-            FStop
+        --- Automatic clip chaining action executed after a timer or loop count.
+        record NextAction
+            enabled: boolean
+            kind: NextActionKind
+            --- Timing: either loop count or manual beat time (not both).
+            loops_before_action: number?
+            action_time_beats: number?
+        end
+
+        --- What the next action does after the clip finishes.
+        enum NextActionKind
+            doc "Bitwig Next Action function list."
+            NAStop
+            NAReturnToArrangement
+            NAReturnToLastClip
+            NAPlayNext
+            NAPlayPrev
+            NAPlayFirst
+            NAPlayLast
+            NAPlayRandom
+            NAPlayOther
+            NARoundRobin
+            NAFirstInBlock
+            NALastInBlock
+            NARandomInBlock
+            NAOtherInBlock
+            NARoundRobinInBlock
+            NAFirstInNextBlock
+            NARandomInNextBlock
+            NAFirstInPrevBlock
+            NARandomInPrevBlock
+            NAFirstInOtherBlock
+            NARandomInOtherBlock
         end
 
         --- Scene (horizontal launcher row across tracks).
+        --- Has its own Main/ALT launch behaviors, and can override per-clip settings.
         record Scene
             id: number
             name: string
+            color: string?
+            comment: string?
             slots: SceneSlot*
             quantize_override: Quantize?
             tempo_override: number?
+            --- When true, triggers force the scene's own launch settings on all clips.
+            override_launch_settings: boolean
+            main: LaunchBehavior
+            alt: LaunchBehavior
         end
 
         --- One track's participation in a scene launch.
@@ -664,7 +892,7 @@ local DAW = schema DAW
             Project:lower() -> Authored.Project
                 doc "Lower full project including tracks, scenes, tempo, and assets."
                 impl = "src/editor/project"
-                fallback = function(self, err) local A = types.Authored; return A.Project(self.name or "error", nil, 0, A.Transport(44100, 512, 120, 0, 4, 4, A.QNone, false, nil), L(), L(), A.TempoMap(L(), L()), A.AssetBank(L(), L(), L(), L(), L())) end
+                fallback = function(self, err) local A = types.Authored; return A.Project(self.name or "error", nil, 0, A.Transport(44100, 512, 120, 4, 4, A.QNone, false, nil, false, false, 0, 0, 0, 0, 0), L(), L(), A.TempoMap(L(), L()), A.AssetBank(L(), L(), L(), L(), L())) end
                 status = "real"
             Track:lower() -> Authored.Track
                 doc "Lower track with device chain, clips, slots, and sends."
@@ -709,12 +937,12 @@ local DAW = schema DAW
             Slot:lower() -> Authored.Slot
                 doc "Lower launcher slot with behavior."
                 impl = "src/editor/slot"
-                fallback = function(self, err) local A = types.Authored; return A.Slot(self.slot_index or 0, A.EmptySlot, A.LaunchBehavior(A.Trigger, nil, false, false, nil), false) end
+                fallback = function(self, err) local A = types.Authored; local b = A.LaunchBehavior(nil, A.TriggerFromStart, A.RAContinue, false, nil); return A.Slot(self.slot_index or 0, A.EmptySlot, b, b, false) end
                 status = "real"
             Scene:lower() -> Authored.Scene
                 doc "Lower scene with slot assignments."
                 impl = "src/editor/scene"
-                fallback = function(self, err) return types.Authored.Scene(self.id or 0, self.name or "error", L(), nil, nil) end
+                fallback = function(self, err) local A = types.Authored; local b = A.LaunchBehavior(nil, A.TriggerFromStart, A.RAContinue, false, nil); return A.Scene(self.id or 0, self.name or "error", L(), nil, nil, false, b, b) end
                 status = "real"
             Send:lower() -> Authored.Send
                 doc "Lower send routing."
@@ -724,7 +952,7 @@ local DAW = schema DAW
             Transport:lower() -> Authored.Transport
                 doc "Lower transport settings."
                 impl = "src/editor/transport"
-                fallback = function(self, err) return types.Authored.Transport(44100, 512, 120, 0, 4, 4, types.Authored.QNone, false, nil) end
+                fallback = function(self, err) return types.Authored.Transport(44100, 512, 120, 4, 4, types.Authored.QNone, false, nil, false, false, 0, 0, 0, 0, 0) end
                 status = "real"
             TempoMap:lower() -> Authored.TempoMap
                 doc "Lower tempo map with points and signatures."
@@ -838,6 +1066,8 @@ local DAW = schema DAW
             LauncherMain { launcher: LauncherView, detail_panel: DetailPanel? }
             MixerMain { mixer: MixerView, detail_panel: DetailPanel? }
             HybridMain { arrangement: ArrangementView, launcher: LauncherView, mixer: MixerView, detail_panel: DetailPanel? }
+            --- Edit View: Detail Editor is central, automation panel alongside it.
+            EditMain { detail: DetailPanel, automation: AutomationEditorView? }
         end
 
         --- Sidebar content.
@@ -845,6 +1075,7 @@ local DAW = schema DAW
             doc "Sidebar panel content variants."
             BrowserSidebar { browser: BrowserView }
             InspectorSidebar { inspector: InspectorView }
+            ProjectSidebar { project: ProjectPanelView }
         end
 
         --- Status bar readout.
@@ -1043,7 +1274,16 @@ local DAW = schema DAW
             playhead: ArrangementPlayheadView?
             loop_region: ArrangementLoopRegionView?
             selection: ArrangementSelectionView?
+            cue_markers: ArrangementCueMarkerView*
             lanes: ArrangementLane*
+        end
+
+        --- Cue marker in the arrangement ruler.
+        record ArrangementCueMarkerView
+            marker_ref: SemanticRef
+            identity: Identity
+            anchors: ArrangementAnchor*
+            commands: ArrangementCommand*
         end
 
         --- Arrangement anchor.
@@ -1074,6 +1314,7 @@ local DAW = schema DAW
             ArrangementAutomationLaneA
             ArrangementAutomationPointA
             ArrangementSelectionA
+            ArrangementCueMarkerA
         end
 
         --- Arrangement command.
@@ -1108,6 +1349,10 @@ local DAW = schema DAW
             ACCMoveAutomationPoint
             ACCRemoveAutomationPoint
             ACCSelectAutomationPoint
+            ACCAddCueMarker
+            ACCMoveCueMarker
+            ACCDeleteCueMarker
+            ACCSelectCueMarker
         end
 
         --- Arrangement ruler.
@@ -1203,9 +1448,12 @@ local DAW = schema DAW
         end
 
         --- One rendered clip in an arrangement lane.
+        --- Meta clips represent child track content summarized on a group track lane.
         record ArrangementClipView
             track_ref: SemanticRef
             clip_ref: SemanticRef
+            is_meta_clip: boolean
+            source_track_ref: SemanticRef?
             identity: Identity
             anchors: ArrangementAnchor*
             commands: ArrangementCommand*
@@ -1458,11 +1706,11 @@ local DAW = schema DAW
             scene_ref: SemanticRef?
             slot_ref: SemanticRef?
             clip_ref: SemanticRef?
-            launch_mode: Editor.LaunchMode?
+            play_mode: Editor.LaunchPlayMode?
+            on_release: Editor.LaunchReleaseAction?
             quantize_override: Editor.Quantize?
-            legato: boolean?
-            retrigger: boolean?
-            follow: Editor.FollowAction?
+            quantize_to_loop: boolean?
+            next_action: Editor.NextAction?
             bool_value: boolean?
         end
 
@@ -1519,6 +1767,16 @@ local DAW = schema DAW
             LauncherStopSlot
         end
 
+        --- Runtime playback state of a launcher slot.
+        enum LauncherSlotPlayState
+            doc "Whether a launcher slot is idle, playing, queued, recording, or stopping."
+SlotIdle
+            SlotPlaying
+            SlotQueued
+            SlotRecording
+            SlotStopping
+        end
+
         --- Launcher slot cell.
         record LauncherSlotView
             track_ref: SemanticRef
@@ -1526,6 +1784,7 @@ local DAW = schema DAW
             slot_ref: SemanticRef
             content_kind: LauncherSlotContentKind
             clip_ref: SemanticRef?
+            play_state: LauncherSlotPlayState
             identity: Identity
             anchors: LauncherAnchor*
             commands: LauncherCommand*
@@ -1600,6 +1859,15 @@ local DAW = schema DAW
             pan: MixerPanView
             volume: MixerVolumeView
             sends: MixerSendView*
+            crossfade_view: MixerCrossfadeView?
+            anchors: MixerAnchor*
+            commands: MixerCommand*
+        end
+
+        --- Crossfader A/B assignment control in a mixer strip.
+        record MixerCrossfadeView
+            track_ref: SemanticRef
+            identity: Identity
             anchors: MixerAnchor*
             commands: MixerCommand*
         end
@@ -1646,6 +1914,176 @@ local DAW = schema DAW
             DeviceDetail { device: DeviceView }
             GridDetail { patch: GridPatchView }
             PianoRollDetail { piano_roll: PianoRollView }
+            AudioClipDetail { editor: AudioClipEditorView }
+        end
+
+        --- Audio clip detail editor (waveform, stretch expressions, onset markers).
+        record AudioClipEditorView
+            clip_ref: SemanticRef
+            expr_mode: AudioExprMode
+            identity: Identity
+            anchors: AudioClipAnchor*
+            commands: AudioClipCommand*
+            events: AudioEventView*
+        end
+
+        --- Which expression lane is currently visible in the audio clip editor.
+        enum AudioExprMode
+            doc "Active expression lane in the audio clip detail editor."
+StretchExpr
+            GainExpr
+            PanExpr
+            PitchExpr
+            FormantExpr
+            OnsetsExpr
+        end
+
+        --- Audio event in the detail editor (one region within a clip).
+        record AudioEventView
+            clip_ref: SemanticRef
+            event_index: number
+            identity: Identity
+            anchors: AudioClipAnchor*
+            commands: AudioClipCommand*
+        end
+
+        --- Anchor for audio clip editor.
+        record AudioClipAnchor
+            kind: AudioClipAnchorKind
+            event_index: number?
+        end
+
+        enum AudioClipAnchorKind
+            doc "Audio clip detail editor visual targets."
+            AudioClipRootA
+            AudioClipWaveformA
+            AudioClipEventHeaderA
+            AudioClipEventBodyA
+            AudioClipFadeInA
+            AudioClipFadeOutA
+            AudioClipExprLaneA
+            AudioClipOnsetA
+            AudioClipBeatMarkerA
+            AudioClipPlayheadA
+            AudioClipLoopA
+        end
+
+        --- Command for audio clip editor.
+        record AudioClipCommand
+            action_id: string
+            kind: AudioClipCommandKind
+            clip_ref: SemanticRef
+            event_index: number?
+            number_value: number?
+            bool_value: boolean?
+        end
+
+        enum AudioClipCommandKind
+            doc "Audio clip detail editor actions."
+            ACLCSplitEvent
+            ACLCSetEventGain
+            ACLCSetFadeIn
+            ACLCSetFadeOut
+            ACLCReverseEvent
+            ACLCSetStretchMode
+            ACLCSetPlayhead
+            ACLCSetLoopRange
+        end
+
+        --- Standalone Automation Editor Panel (track or clip editing mode).
+        record AutomationEditorView
+            mode: AutomationEditorMode
+            track_ref: SemanticRef?
+            clip_ref: SemanticRef?
+            param_ref: SemanticRef?
+            free_running: boolean
+            custom_loop: boolean
+            identity: Identity
+            anchors: ArrangementAnchor*
+            commands: ArrangementCommand*
+            points: ArrangementAutomationPointView*
+        end
+
+        --- Automation editor panel mode.
+        enum AutomationEditorMode
+            doc "Whether automation is attached to the track timeline or a clip."
+TrackEditMode
+            ClipEditMode
+        end
+
+        --- Project Panel with settings, sections, files, plugins tabs.
+        record ProjectPanelView
+            active_tab: ProjectPanelTab
+            identity: Identity
+            anchors: ProjectPanelAnchor*
+            commands: ProjectPanelCommand*
+            cue_marker_list: CueMarkerListView?
+        end
+
+        --- Project panel tab selector.
+        enum ProjectPanelTab
+            doc "Which sub-panel of the Project Panel is active."
+PPSettingsTab
+            PPInfoTab
+            PPSectionsTab
+            PPFilesTab
+            PPPluginsTab
+        end
+
+        --- List of all cue markers and scenes shown in the Sections tab.
+        record CueMarkerListView
+            cue_markers: CueMarkerRowView*
+            scenes: SceneRowView*
+            identity: Identity
+            anchors: ProjectPanelAnchor*
+            commands: ProjectPanelCommand*
+        end
+
+        --- One row in the cue marker list.
+        record CueMarkerRowView
+            marker_ref: SemanticRef
+            identity: Identity
+            anchors: ProjectPanelAnchor*
+            commands: ProjectPanelCommand*
+        end
+
+        --- One row in the scene list.
+        record SceneRowView
+            scene_ref: SemanticRef
+            identity: Identity
+            anchors: ProjectPanelAnchor*
+            commands: ProjectPanelCommand*
+        end
+
+        --- Project panel anchor.
+        record ProjectPanelAnchor
+            kind: ProjectPanelAnchorKind
+        end
+
+        enum ProjectPanelAnchorKind
+            doc "Project Panel visual targets."
+PPRootA
+            PPTabBarA
+            PPContentA
+            PPSectionRowA
+            PPCueMarkerRowA
+        end
+
+        --- Project panel command.
+        record ProjectPanelCommand
+            action_id: string
+            kind: ProjectPanelCommandKind
+            tab: ProjectPanelTab?
+            marker_ref: SemanticRef?
+            scene_ref: SemanticRef?
+        end
+
+        enum ProjectPanelCommandKind
+            doc "Project Panel actions."
+PPCSelectTab
+            PPCTriggerMarker
+            PPCTriggerScene
+            PPCSelectRow
         end
 
         --- Device chain editor.
@@ -2200,6 +2638,10 @@ local DAW = schema DAW
             doc "Tab content reference types."
             TrackTab { track_ref: SemanticRef }
             DeviceTab { device_ref: SemanticRef }
+            --- Modulation sources tab: lists all modulation outputs from this device.
+            ModSourcesTab { device_ref: SemanticRef }
+            --- Modulation destinations tab: lists all params being modulated.
+            ModDestinationsTab { device_ref: SemanticRef }
             ClipTab { clip_ref: SemanticRef }
             NoteTab { note_ref: SemanticRef }
             ModulatorTab { modulator_ref: SemanticRef }
@@ -2510,12 +2952,18 @@ local DAW = schema DAW
             sample_rate: number
             buffer_size: number
             bpm: number
-            swing: number
             time_sig_num: number
             time_sig_den: number
             launch_quantize: Quantize
             looping: boolean
             loop_range: TimeRange?
+            fill_active: boolean
+            groove_enabled: boolean
+            groove_shuffle_rate: number
+            groove_shuffle_amount: number
+            groove_accent_rate: number
+            groove_accent_amount: number
+            groove_accent_phase: number
         end
 
         --- Beat-based time range.
@@ -2633,11 +3081,12 @@ local DAW = schema DAW
             ExpoFade
         end
 
-        --- Launcher slot.
+        --- Launcher slot. Main behavior on normal trigger; alt on ALT-trigger.
         record Slot
             slot_index: number
             content: SlotContent
-            behavior: LaunchBehavior
+            main: LaunchBehavior
+            alt: LaunchBehavior
             enabled: boolean
         end
 
@@ -2649,43 +3098,65 @@ local DAW = schema DAW
             StopSlot
         end
 
-        --- Launch behavior.
+        --- Launch behavior: Bitwig's Launch Section (Q + Play Mode + on Release).
         record LaunchBehavior
-            mode: LaunchMode
-            quantize_override: Quantize?
-            legato: boolean
-            retrigger: boolean
-            follow: FollowAction?
+            launch_quantize: Quantize?
+            play_mode: LaunchPlayMode
+            on_release: LaunchReleaseAction
+            quantize_to_loop: boolean
+            next_action: NextAction?
         end
 
-        --- Launch mode.
-        enum LaunchMode
-            doc "Clip launch trigger modes."
-            Trigger
-            Gate
-            Toggle
-            Repeat
+        --- Where within the clip content playback begins.
+        enum LaunchPlayMode
+            doc "Bitwig Play Mode: where to start playback on trigger."
+            TriggerFromStart
+            LegatoFromClipOrStart
+            LegatoFromClipOrProject
+            LegatoFromProject
         end
 
-        --- Follow action.
-        record FollowAction
-            kind: FollowKind
-            weight_a: number
-            weight_b: number
-            target_scene_id: number?
+        --- What happens when the trigger gesture is released.
+        enum LaunchReleaseAction
+            doc "Bitwig on Release action."
+            RAContinue
+            RAStop
+            RAReturn
+            RANextAction
         end
 
-        --- Follow action target.
-        enum FollowKind
-            doc "Post-clip follow action targets."
-            FNone
-            FNext
-            FPrev
-            FFirst
-            FLast
-            FOther
-            FRandom
-            FStop
+        --- Automatic clip chaining: fires after a timer or loop count.
+        record NextAction
+            enabled: boolean
+            kind: NextActionKind
+            loops_before_action: number?
+            action_time_beats: number?
+        end
+
+        --- Next action function variants.
+        enum NextActionKind
+            doc "Bitwig Next Action function list."
+            NAStop
+            NAReturnToArrangement
+            NAReturnToLastClip
+            NAPlayNext
+            NAPlayPrev
+            NAPlayFirst
+            NAPlayLast
+            NAPlayRandom
+            NAPlayOther
+            NARoundRobin
+            NAFirstInBlock
+            NALastInBlock
+            NARandomInBlock
+            NAOtherInBlock
+            NARoundRobinInBlock
+            NAFirstInNextBlock
+            NARandomInNextBlock
+            NAFirstInPrevBlock
+            NARandomInPrevBlock
+            NAFirstInOtherBlock
+            NARandomInOtherBlock
         end
 
         --- Scene.
@@ -2695,6 +3166,9 @@ local DAW = schema DAW
             slots: SceneSlot*
             quantize_override: Quantize?
             tempo_override: number?
+            override_launch_settings: boolean
+            main: LaunchBehavior
+            alt: LaunchBehavior
         end
 
         --- Scene slot assignment.
@@ -3449,7 +3923,7 @@ local DAW = schema DAW
             Project:resolve(ticks_per_beat: number) -> Resolved.Project
                 doc "Resolve full project: transport, tempo, tracks, scenes, assets."
                 impl = "src/authored/project"
-                fallback = function(self, err) local R = types.Resolved; return R.Project(R.Transport(44100,512,120,0,4,4,0,false,0,0), R.TempoMap(L()), L(), L(), R.AssetBank(L(),L(),L(),L(),L())) end
+                fallback = function(self, err) local R = types.Resolved; return R.Project(R.Transport(44100,512,120,4,4,0,false,0,0,false,false,0,0,0,0,0), R.TempoMap(L()), L(), L(), R.AssetBank(L(),L(),L(),L(),L())) end
                 status = "real"
             Transport:resolve(ticks_per_beat: number) -> Resolved.Transport
                 doc "Resolve transport to tick-based form."
@@ -3532,13 +4006,19 @@ local DAW = schema DAW
             sample_rate: number
             buffer_size: number
             bpm: number
-            swing: number
             time_sig_num: number
             time_sig_den: number
             launch_quant_code: number
             looping: boolean
             loop_start_tick: number
             loop_end_tick: number
+            fill_active: boolean
+            groove_enabled: boolean
+            groove_shuffle_rate: number
+            groove_shuffle_amount: number
+            groove_accent_rate: number
+            groove_accent_amount: number
+            groove_accent_phase: number
         end
 
         --- Resolved tempo map with sample-accurate segments.
@@ -3867,7 +4347,7 @@ local DAW = schema DAW
             Project:classify() -> Classified.Project
                 doc "Classify full project."
                 impl = "src/resolved/project"
-                fallback = function(self, err) local C = types.Classified; return C.Project(C.Transport(44100,512,120,0,4,4,0,false,0,0), C.TempoMap(L()), L(), L()) end
+                fallback = function(self, err) local C = types.Classified; return C.Project(C.Transport(44100,512,120,4,4,0,false,0,0,false,false,0,0,0,0,0), C.TempoMap(L()), L(), L()) end
                 status = "real"
             Transport:classify() -> Classified.Transport
                 doc "Pass transport through to classified form."
@@ -3914,13 +4394,19 @@ local DAW = schema DAW
             sample_rate: number
             buffer_size: number
             bpm: number
-            swing: number
             time_sig_num: number
             time_sig_den: number
             launch_quant_code: number
             looping: boolean
             loop_start_tick: number
             loop_end_tick: number
+            fill_active: boolean
+            groove_enabled: boolean
+            groove_shuffle_rate: number
+            groove_shuffle_amount: number
+            groove_accent_rate: number
+            groove_accent_amount: number
+            groove_accent_phase: number
         end
 
         --- Classified tempo map.
@@ -4243,7 +4729,7 @@ local DAW = schema DAW
             Project:schedule() -> Scheduled.Project
                 doc "Schedule full project into track programs."
                 impl = "src/classified/project"
-                fallback = function(self, err) local S = types.Scheduled; return S.Project(S.Transport(44100,512,120,0,4,4,0,false,0,0), S.TempoMap(L()), L(), L()) end
+                fallback = function(self, err) local S = types.Scheduled; return S.Project(S.Transport(44100,512,120,4,4,0,false,0,0,false,false,0,0,0,0,0), S.TempoMap(L()), L(), L()) end
                 status = "real"
             Transport:schedule() -> Scheduled.Transport
                 doc "Pass transport to scheduled form."
@@ -4292,13 +4778,19 @@ local DAW = schema DAW
             sample_rate: number
             buffer_size: number
             bpm: number
-            swing: number
             time_sig_num: number
             time_sig_den: number
             launch_quant_code: number
             looping: boolean
             loop_start_tick: number
             loop_end_tick: number
+            fill_active: boolean
+            groove_enabled: boolean
+            groove_shuffle_rate: number
+            groove_shuffle_amount: number
+            groove_accent_rate: number
+            groove_accent_amount: number
+            groove_accent_phase: number
         end
 
         --- Scheduled tempo map.

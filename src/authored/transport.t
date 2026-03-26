@@ -20,9 +20,13 @@ local R = types.Resolved
             loop_start = self.loop_range.start_beats * ticks_per_beat
             loop_end = self.loop_range.end_beats * ticks_per_beat
         end
-        return R.Transport(self.sample_rate, self.buffer_size, self.bpm, self.swing,
+        return R.Transport(self.sample_rate, self.buffer_size, self.bpm,
             self.time_sig_num, self.time_sig_den, quantize_to_code(self.launch_quantize),
-            self.looping, loop_start, loop_end)
+            self.looping, loop_start, loop_end,
+            self.fill_active, self.groove_enabled,
+            self.groove_shuffle_rate, self.groove_shuffle_amount,
+            self.groove_accent_rate, self.groove_accent_amount,
+            self.groove_accent_phase)
     end
 
     local function resolve_tempo_map(self, ticks_per_beat, sample_rate)

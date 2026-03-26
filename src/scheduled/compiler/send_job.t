@@ -1,27 +1,39 @@
--- impl/scheduled/compiler/send_job.t
--- Private scheduled send-job quote compiler.
+-- src/scheduled/compiler/send_job.t
+-- Compiles a Scheduled.SendProgram into a Terra quote.
+--
+-- Signature: compile(program: SendProgram, params, state_sym) -> quote
 
-local compile_binding_value = require("src/scheduled/compiler/binding")
+local compile_binding = require("src/scheduled/compiler/binding")
 
-local function compile_with(self, ctx)
-        assert(ctx and ctx.bufs_sym, "SendJob:compile requires ctx.bufs_sym")
-        if not self.enabled then return quote end end
+local function compile(program, params, _state_sym)
+    local job = program.send
+    if not job.enabled then return quote end end
 
-        local bufs = ctx.bufs_sym
-        local frames = ctx.frames_sym
-        local BS = ctx.BS
-        local level_q = compile_binding_value(self.level, ctx)
-        local soff = self.source_buf * BS
-        local toff = self.target_buf * BS
+    local BS = program.transport and program.transport.buffer_size or 512
 
-        return quote
-            var so = [int32](soff); var to = [int32](toff)
-            var lv : float = [level_q]
-            for i = 0, frames do
-                bufs[to+i] = bufs[to+i] + bufs[so+i] * lv
-            end
+    local literal_values = {}
+    for i = 1, #(program.literals or {}) do
+        literal_values[i] = program.literals[i].value
+    end
+
+    local bufs_sym   = params[1]
+    local frames_sym = params[2]
+    local init_sym   = params[3]; local block_sym  = params[4]
+    local sample_sym = params[5]; local event_sym  = params[6]
+    local voice_sym  = params[7]
+
+    local level_q = compile_binding(job.level, literal_values,
+        init_sym, block_sym, sample_sym, event_sym, voice_sym)
+    local soff = job.source_buf * BS
+    local toff = job.target_buf * BS
+
+    return quote
+        var so = [int32](soff); var to = [int32](toff)
+        var lv : float = [level_q]
+        for i = 0, frames_sym do
+            [bufs_sym][to+i] = [bufs_sym][to+i] + [bufs_sym][so+i] * lv
         end
-
+    end
 end
 
-return compile_with
+return compile

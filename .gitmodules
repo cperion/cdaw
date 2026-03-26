@@ -1,3 +1,6 @@
 [submodule "terraui"]
 	path = terraui
 	url = git@github.com:cperion/terraui.git
+[submodule "schema.t"]
+	path = schema.t
+	url = git@github.com:cperion/schema.t.git

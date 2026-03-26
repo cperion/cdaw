@@ -43,9 +43,10 @@ local editor_project = D.Editor.Project(
     "Test Project",
     "Test Author",
     1,
-    D.Editor.Transport(44100, 512, 120, 0, 4, 4, D.Editor.QNone, false, nil),
+    D.Editor.Transport(44100, 512, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
     L(),  -- tracks
     L(),  -- scenes
+    L(),  -- cue_markers
     D.Editor.TempoMap(L(), L()),
     D.Authored.AssetBank(L(), L(), L(), L(), L())
 )
@@ -124,14 +125,16 @@ local native_body = D.Editor.NativeDeviceBody(
     nil,   -- note_fx
     nil,   -- post_fx
     nil,   -- preset
+    true,  -- active
     true,  -- enabled
     nil    -- meta
 )
 
 local track = D.Editor.Track(
-    1, "Track 1", 2,
+    1, "Track 1", nil, nil, 2,
     D.Editor.AudioTrack,
     D.Editor.NoInput,
+    D.Editor.MasterOutput,
     make_param(0, "volume", 1, 0, 4),
     make_param(1, "pan", 0, -1, 1),
     D.Editor.DeviceChain(L{
@@ -139,30 +142,38 @@ local track = D.Editor.Track(
     }),
     L{  -- clips
         D.Editor.Clip(
-            1,
+            1, nil, nil,
             D.Editor.NoteContent(note_region),
-            0, 4, 0, 0,
+            0, 4, 0,
+            false, 0, 0,
+            0,
             false,
             make_param(0, "clip_gain", 1, 0, 4),
-            nil, nil, nil
+            nil, nil,
+            nil, nil,   -- time_sig override
+            false, 0,   -- shuffle
+            nil, nil    -- seed, meta
         ),
     },   -- end clips
+    L(),  -- launcher_clips
     L(),  -- launcher_slots
     L(),  -- sends
-    nil, nil,          -- output/group
+    nil,  -- group_track_id
+    true,              -- active
     false, false,      -- muted, soloed
     false, false,      -- armed, monitor
     false,             -- phase_invert
-    nil                -- meta
+    D.Editor.CrossBoth, L(), nil  -- crossfade_mode, remote_controls, meta
 )
 
 local project2 = D.Editor.Project(
     "Test With Track",
     nil,
     1,
-    D.Editor.Transport(44100, 512, 140, 0, 4, 4, D.Editor.Q1_4, false, nil),
+    D.Editor.Transport(44100, 512, 140, 4, 4, D.Editor.Q1_4, false, nil, false, nil),
     L{ track },
-    L(),
+    L(),  -- scenes
+    L(),  -- cue_markers
     D.Editor.TempoMap(
         L{ D.Editor.TempoPoint(0, 140) },
         L{ D.Editor.SigPoint(0, 4, 4) }
@@ -240,7 +251,7 @@ local layer_body = D.Editor.LayerContainer(
             make_param(1, "pan", 0.5, -1, 1),
             false, nil),
     },
-    L(), L(), nil, nil, nil, true, nil
+    L(), L(), nil, nil, nil, true, true, nil
 )
 local layer_dev = D.Editor.LayerDevice(layer_body)
 local layer_node = layer_dev:lower()
@@ -256,7 +267,7 @@ local sel_body = D.Editor.SelectorContainer(
         D.Editor.SelectorBranch(1, "A", D.Editor.DeviceChain(L()), nil),
         D.Editor.SelectorBranch(2, "B", D.Editor.DeviceChain(L()), nil),
     },
-    L(), L(), nil, nil, nil, true, nil
+    L(), L(), nil, nil, nil, true, true, nil
 )
 local sel_dev = D.Editor.SelectorDevice(sel_body)
 local sel_node = sel_dev:lower()
@@ -271,7 +282,7 @@ local split_body = D.Editor.SplitContainer(
         D.Editor.SplitBand(1, "Low", 200, D.Editor.DeviceChain(L()), nil),
         D.Editor.SplitBand(2, "High", 2000, D.Editor.DeviceChain(L()), nil),
     },
-    L(), L(), nil, nil, nil, true, nil
+    L(), L(), nil, nil, nil, true, true, nil
 )
 local split_dev = D.Editor.SplitDevice(split_body)
 local split_node = split_dev:lower()

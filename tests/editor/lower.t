@@ -15,14 +15,13 @@ local function approx(a,b,t) return math.abs(a-b) < (t or 0.001) end
 -- ══════════════════════════════════════════
 print("1. editor.transport.lower")
 do
-    local t = D.Editor.Transport(48000, 1024, 140, 0.1, 3, 8, D.Editor.Q1_4, true,
-        D.Editor.TimeRange(2.0, 8.0))
+    local t = D.Editor.Transport(48000, 1024, 140, 3, 8, D.Editor.Q1_4, true,
+        D.Editor.TimeRange(2.0, 8.0), false, nil)
     local ctx = {diagnostics = {}}
     local r = t:lower()
     check(r.sample_rate == 48000, "sample_rate=48000")
     check(r.buffer_size == 1024, "buffer_size=1024")
     check(r.bpm == 140, "bpm=140")
-    check(approx(r.swing, 0.1), "swing=0.1")
     check(r.time_sig_num == 3, "time_sig_num=3")
     check(r.time_sig_den == 8, "time_sig_den=8")
     check(r.looping == true, "looping=true")
@@ -91,7 +90,7 @@ do
             D.Editor.StaticValue(2000), D.Editor.Replace, D.Editor.NoSmoothing),
           D.Editor.ParamValue(1, "gain", 0, -24, 24,
             D.Editor.StaticValue(3.0), D.Editor.Replace, D.Editor.NoSmoothing)},
-        L(), nil, nil, nil, true, nil
+        L(), nil, nil, nil, true, true, nil
     ))
     local ctx = {diagnostics = {}, alloc_graph_id = function() return 100 end}
     local r = dev:lower()
@@ -114,11 +113,11 @@ do
             D.Editor.DeviceChain(L{
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                     21, "G1", D.Authored.GainNode,
-                    L{pv(0, "g", 0.5)}, L(), nil, nil, nil, true, nil))
+                    L{pv(0, "g", 0.5)}, L(), nil, nil, nil, true, true, nil))
             }),
             pv(0, "vol", 1), pv(1, "pan", 0), false, nil)},
         L{pv(0, "mix", 0.8)},
-        L(), nil, nil, nil, true, nil
+        L(), nil, nil, nil, true, true, nil
     ))
     local gid = 200
     local ctx = {diagnostics = {}, alloc_graph_id = function() gid = gid + 1; return gid end}
@@ -137,7 +136,7 @@ do
         30, "Selector",
         D.Editor.ManualSelect(0),
         L{},  -- branches
-        L(), L(), nil, nil, nil, true, nil
+        L(), L(), nil, nil, nil, true, true, nil
     ))
     local gid = 300
     local ctx = {diagnostics = {}, alloc_graph_id = function() gid = gid + 1; return gid end}
@@ -155,11 +154,11 @@ do
         D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
             1, "A", D.Authored.GainNode,
             L{D.Editor.ParamValue(0, "g", 1, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing)},
-            L(), nil, nil, nil, true, nil)),
+            L(), nil, nil, nil, true, true, nil)),
         D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
             2, "B", D.Authored.GainNode,
             L{D.Editor.ParamValue(0, "g", 1, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing)},
-            L(), nil, nil, nil, true, nil)),
+            L(), nil, nil, nil, true, true, nil)),
     })
     local gid = 0
     local ctx = {diagnostics = {}, alloc_graph_id = function() gid = gid + 1; return gid end}
@@ -176,16 +175,18 @@ end
 -- ══════════════════════════════════════════
 print("8. editor.track.lower")
 do
-    local track = D.Editor.Track(42, "Lead", 2, D.Editor.AudioTrack,
-        D.Editor.AudioInput(1, 0),
+    local track = D.Editor.Track(42, "Lead", nil, nil, 2, D.Editor.AudioTrack,
+        D.Editor.AudioInput(1, 0), D.Editor.MasterOutput,
         D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.7), D.Editor.Replace, D.Editor.NoSmoothing),
         D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(-0.3), D.Editor.Replace, D.Editor.NoSmoothing),
         D.Editor.DeviceChain(L{}),
-        L(), L(), L(),
-        nil, nil,
-        true, false,    -- muted, soloed
-        true, false,    -- armed, monitor
-        true, nil       -- phase_invert
+        L(), L(), L(), L(),  -- clips, launcher_clips, slots, sends
+        nil,                 -- group_track_id
+        true,                -- active
+        true, false,         -- muted, soloed
+        true, false,         -- armed, monitor
+        true,                -- phase_invert
+        D.Editor.CrossBoth, L(), nil  -- crossfade, remotes, meta
     )
     local gid = 0
     local ctx = {diagnostics = {}, alloc_graph_id = function() gid = gid + 1; return gid end}
@@ -206,13 +207,18 @@ end
 print("9. editor.clip.lower")
 do
     local clip = D.Editor.Clip(
-        7,
+        7, nil, nil,
         D.Editor.AudioContent(99),
-        1.0, 4.0, 0.5, 0,
+        1.0, 4.0, 0.5,
+        false, 0, 0,
+        0,
         false,
         D.Editor.ParamValue(0, "gain", 1, 0, 4, D.Editor.StaticValue(0.9), D.Editor.Replace, D.Editor.NoSmoothing),
         D.Editor.FadeSpec(0.1, D.Editor.LinearFade),
-        D.Editor.FadeSpec(0.2, D.Editor.EqualPower)
+        D.Editor.FadeSpec(0.2, D.Editor.EqualPower),
+        nil, nil,   -- time_sig override
+        false, 0,   -- shuffle
+        nil, nil    -- seed, meta
     )
     local ctx = {diagnostics = {}}
     local r = clip:lower()
@@ -247,11 +253,14 @@ end
 -- ══════════════════════════════════════════
 print("11. editor.slot.lower")
 do
+    local default_lb = D.Editor.LaunchBehavior(nil, D.Editor.TriggerFromStart, D.Editor.RAContinue, false, nil)
+    local main_lb = D.Editor.LaunchBehavior(D.Editor.Q1_8, D.Editor.TriggerFromStart, D.Editor.RAStop, false,
+        D.Editor.NextAction(true, D.Editor.NAPlayNext, 1, nil))
     local slot = D.Editor.Slot(
         3,
         D.Editor.ClipSlot(99),
-        D.Editor.LaunchBehavior(D.Editor.Gate, D.Editor.Q1_8, true, false,
-            D.Editor.FollowAction(D.Editor.FNext, 1.0, 0.0, nil)),
+        main_lb,
+        default_lb,
         true
     )
     local ctx = {diagnostics = {}}
@@ -266,11 +275,13 @@ end
 -- ══════════════════════════════════════════
 print("12. editor.scene.lower")
 do
+    local default_lb = D.Editor.LaunchBehavior(nil, D.Editor.TriggerFromStart, D.Editor.RAContinue, false, nil)
     local scene = D.Editor.Scene(
-        5, "Chorus",
+        5, "Chorus", nil, nil,
         L{D.Editor.SceneSlot(1, 0, false), D.Editor.SceneSlot(2, 1, true)},
         D.Editor.Q1_4,
-        150.0
+        150.0,
+        false, default_lb, default_lb
     )
     local ctx = {diagnostics = {}}
     local r = scene:lower()
@@ -338,7 +349,7 @@ do
         60, "LFO", D.Authored.LFOMod(D.Authored.Sine),
         L{D.Editor.ParamValue(0, "rate", 1, 0.01, 100,
             D.Editor.StaticValue(4.0), D.Editor.Replace, D.Editor.NoSmoothing)},
-        L{D.Editor.ModulationMap(10, 42, 0.5, false, nil, nil)},
+        L{D.Editor.ModulationMap(10, 42, 0.5, false, D.Editor.MTLinearBipolar, nil, nil)},
         false, true
     )
     local ctx = {diagnostics = {}}
@@ -364,21 +375,24 @@ do
     )
     local project = D.Editor.Project(
         "TestProject", "Author", 1,
-        D.Editor.Transport(44100, 512, 120, 0, 4, 4, D.Editor.QNone, false, nil),
-        L{D.Editor.Track(1, "T1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+        D.Editor.Transport(44100, 512, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
+        L{D.Editor.Track(1, "T1", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
             D.Editor.ParamValue(0, "v", 1, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "p", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{}),
             L{D.Editor.Clip(
-                7,
+                7, nil, nil,
                 D.Editor.NoteContent(note_region),
-                0, 4, 0, 0,
+                0, 4, 0,
+                false, 0, 0,
+                0,
                 false,
                 D.Editor.ParamValue(0, "gain", 1, 0, 4, D.Editor.StaticValue(1), D.Editor.Replace, D.Editor.NoSmoothing),
-                nil, nil, nil
+                nil, nil, nil, nil, false, 0, nil, nil
             )},
-            L(), L(), nil, nil, false, false, false, false, false, nil)},
-        L{D.Editor.Scene(1, "S1", L{}, nil, nil)},
+            L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil)},
+        L{D.Editor.Scene(1, "S1", nil, nil, L{}, nil, nil, false, D.Editor.LaunchBehavior(nil, D.Editor.TriggerFromStart, D.Editor.RAContinue, false, nil), D.Editor.LaunchBehavior(nil, D.Editor.TriggerFromStart, D.Editor.RAContinue, false, nil))},
+        L(),
         D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L{}),
         D.Authored.AssetBank(L(), L(), L(), L(), L())
     )

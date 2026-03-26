@@ -1,56 +1,64 @@
--- impl/scheduled/compiler/clip_job.t
--- Private scheduled clip-job quote compiler.
+-- src/scheduled/compiler/clip_job.t
+-- Compiles a Scheduled.ClipProgram into a Terra quote.
+--
+-- Signature: compile(program: ClipProgram, params, state_sym) -> quote
 
-local compile_binding_value = require("src/scheduled/compiler/binding")
-
+local compile_binding = require("src/scheduled/compiler/binding")
 local C = terralib.includec("math.h")
 
-local function compile_with(self, ctx)
-        assert(ctx and ctx.bufs_sym, "ClipJob:compile requires ctx.bufs_sym")
+local function compile(program, params, _state_sym)
+    local job = program.clip
+    local BS  = program.transport and program.transport.buffer_size or 512
 
-        local bufs = ctx.bufs_sym
-        local frames = ctx.frames_sym
-        local BS = ctx.BS
-        local gain_q = compile_binding_value(self.gain, ctx)
-        local content_kind = self.content_kind
-        local ooff = self.out_buf * BS
-        local fade_in_samples = self.fade_in_tick
-        local fade_out_samples = self.fade_out_tick
+    local literal_values = {}
+    for i = 1, #(program.literals or {}) do
+        literal_values[i] = program.literals[i].value
+    end
 
-        if content_kind ~= 0 then
-            return quote end
-        end
+    local bufs_sym   = params[1]
+    local frames_sym = params[2]
+    local init_sym   = params[3]; local block_sym  = params[4]
+    local sample_sym = params[5]; local event_sym  = params[6]
+    local voice_sym  = params[7]
 
-        return quote
-            var oo = [int32](ooff)
-            var g : float = [gain_q]
-            if g ~= 0.0f then
-                for i = 0, frames do
-                    var fade : float = 1.0f
-                    escape
-                        if fade_in_samples > 0 then
-                            emit quote
-                                if i < [int32](fade_in_samples) then
-                                    fade = [float](i) / [float](fade_in_samples)
-                                end
+    local gain_q = compile_binding(job.gain, literal_values,
+        init_sym, block_sym, sample_sym, event_sym, voice_sym)
+
+    if job.content_kind ~= 0 then
+        return quote end
+    end
+
+    local ooff           = job.out_buf        * BS
+    local fade_in_samp   = job.fade_in_tick  or 0
+    local fade_out_samp  = job.fade_out_tick or 0
+
+    return quote
+        var oo = [int32](ooff)
+        var g  : float = [gain_q]
+        if g ~= 0.0f then
+            for i = 0, frames_sym do
+                var fade : float = 1.0f
+                escape
+                    if fade_in_samp > 0 then
+                        emit quote
+                            if i < [int32](fade_in_samp) then
+                                fade = [float](i) / [float](fade_in_samp)
                             end
                         end
                     end
-                    escape
-                        if fade_out_samples > 0 then
-                            emit quote
-                                var from_end = frames - 1 - i
-                                if from_end < [int32](fade_out_samples) then
-                                    fade = fade * ([float](from_end) / [float](fade_out_samples))
-                                end
+                    if fade_out_samp > 0 then
+                        emit quote
+                            var from_end = frames_sym - 1 - i
+                            if from_end < [int32](fade_out_samp) then
+                                fade = fade * ([float](from_end) / [float](fade_out_samp))
                             end
                         end
                     end
-                    bufs[oo+i] = bufs[oo+i] + g * fade
                 end
+                [bufs_sym][oo+i] = [bufs_sym][oo+i] + g * fade
             end
         end
-
+    end
 end
 
-return compile_with
+return compile

@@ -50,7 +50,7 @@ end
 print("Test 3: TrackSlice classify + schedule builds reusable program")
 do
     local ts = D.Resolved.TrackSlice(
-        D.Resolved.Track(1, "T", 2, 0, 0, 0, 0, 1, 10, 0, 0, 0, 0, 0, 0, nil, nil, false, false, false, false, false),
+        D.Resolved.Track(1, "T", 2, 0, 0, 0, 0, 1, 10, nil, nil, false, false, false, false, false),
         L{
             D.Resolved.Param(0, 0, "vol", 1, 0, 4, D.Resolved.ParamSourceRef(0, 0.8, nil), 0, 0, 0),
             D.Resolved.Param(1, 0, "pan", 0, -1, 1, D.Resolved.ParamSourceRef(0, 0.0, nil), 0, 0, 0)
@@ -76,15 +76,15 @@ print("Test 4: Automation becomes block ops across classify/schedule")
 do
     local project = D.Editor.Project(
         "auto", nil, 1,
-        D.Editor.Transport(44100, 128, 120, 0, 4, 4, D.Editor.QNone, false, nil),
-        L{D.Editor.Track(1, "T1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+        D.Editor.Transport(44100, 128, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
+        L{D.Editor.Track(1, "T1", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
             D.Editor.ParamValue(0, "vol", 1, 0, 4,
                 D.Editor.AutomationRef(D.Editor.AutoCurve(L{D.Editor.AutoPoint(0, 0.2), D.Editor.AutoPoint(1, 0.8)}, D.Editor.Linear)),
                 D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
-            D.Editor.DeviceChain(L{D.Editor.NativeDevice(D.Editor.NativeDeviceBody(9, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))}),
-            L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
-        L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()), D.Authored.AssetBank(L(), L(), L(), L(), L()))
+            D.Editor.DeviceChain(L{D.Editor.NativeDevice(D.Editor.NativeDeviceBody(9, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, true, nil))}),
+            L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil)},
+        L(), L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()), D.Authored.AssetBank(L(), L(), L(), L(), L()))
     local classified = project:lower():resolve(TICKS_PER_BEAT):classify()
     local scheduled = classified:schedule()
     check(#classified.track_slices[1].mixer_block_ops >= 1, "classified block ops")
@@ -98,16 +98,16 @@ print("Test 5: End-to-end classify/schedule/compile produces sound")
 do
     local project = D.Editor.Project(
         "sound", nil, 1,
-        D.Editor.Transport(44100, 64, 120, 0, 4, 4, D.Editor.QNone, false, nil),
-        L{D.Editor.Track(1, "T1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+        D.Editor.Transport(44100, 64, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
+        L{D.Editor.Track(1, "T1", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
             D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{
-                D.Editor.NativeDevice(D.Editor.NativeDeviceBody(9, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil)),
-                D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Gain", D.Authored.GainNode, L{D.Editor.ParamValue(0, "gain", 0.5, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))
+                D.Editor.NativeDevice(D.Editor.NativeDeviceBody(9, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, true, nil)),
+                D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Gain", D.Authored.GainNode, L{D.Editor.ParamValue(0, "gain", 0.5, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, true, nil))
             }),
-            L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
-        L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()), D.Authored.AssetBank(L(), L(), L(), L(), L()))
+            L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil)},
+        L(), L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()), D.Authored.AssetBank(L(), L(), L(), L(), L()))
     local kernel = project:lower():resolve(TICKS_PER_BEAT):classify():schedule():compile()
     local outL = terralib.new(float[64])
     local outR = terralib.new(float[64])

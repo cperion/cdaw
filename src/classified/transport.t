@@ -9,10 +9,14 @@ local D = types.Scheduled
     local function schedule_transport(self)
         return D.Transport(
             self.sample_rate, self.buffer_size,
-            self.bpm, self.swing,
+            self.bpm,
             self.time_sig_num, self.time_sig_den,
             self.launch_quant_code, self.looping,
-            self.loop_start_tick, self.loop_end_tick
+            self.loop_start_tick, self.loop_end_tick,
+            self.fill_active, self.groove_enabled,
+            self.groove_shuffle_rate, self.groove_shuffle_amount,
+            self.groove_accent_rate, self.groove_accent_amount,
+            self.groove_accent_phase
         )
     end
 

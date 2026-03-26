@@ -62,7 +62,7 @@ end
 print("3. Resolved.Project:classify -> Classified.Project(track_slices)")
 do
     local rp = D.Resolved.Project(
-        D.Resolved.Transport(44100, 512, 120, 0, 4, 4, 0, false, 0, 0),
+        D.Resolved.Transport(44100, 512, 120, 4, 4, 0, false, 0, 0, false, false, 0, 0, 0, 0, 0),
         D.Resolved.TempoMap(L()),
         L{D.Resolved.TrackSlice(
             D.Resolved.Track(1, "T", 2, 0, 0, 0, 0, 1, 10, 0, 0, 0, 0, 0, 0, nil, nil, false, false, false, false, false),

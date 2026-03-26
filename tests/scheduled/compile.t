@@ -12,6 +12,38 @@ local pass, fail = 0, 0
 local function check(c, m) if c then pass=pass+1 else fail=fail+1; print("  FAIL: "..m) end end
 local function approx(a,b,t) return math.abs(a-b) < (t or 0.001) end
 
+-- Graph/leaf unit fns are now typed: (bufs, frames [, state: &StateT]).
+-- wrap_graph_call builds a thunk that accepts (bufs, frames, &uint8) and calls
+-- the real fn with the correct typed state pointer.
+local function wrap_unit_call(unit, num_extra_params)
+    -- num_extra_params: number of &float params before frames (0 for graph, 5 for leaf)
+    local state_t = unit.state_t
+    local fn = unit.fn
+    if num_extra_params == 0 then
+        -- graph signature: fn(bufs: &float, frames: int32 [, state: &StateT])
+        if terralib.sizeof(state_t) > 0 then
+            return terra(bufs: &float, frames: int32, sr: &uint8)
+                [fn](bufs, frames, [&state_t](sr))
+            end
+        else
+            return terra(bufs: &float, frames: int32, sr: &uint8)
+                [fn](bufs, frames)
+            end
+        end
+    else
+        -- leaf signature: fn(bufs, frames, i, b, s, e, v [, state: &StateT])
+        if terralib.sizeof(state_t) > 0 then
+            return terra(b: &float, f: int32, i: &float, bk: &float, sm: &float, ev: &float, v: &float, sr: &uint8)
+                [fn](b, f, i, bk, sm, ev, v, [&state_t](sr))
+            end
+        else
+            return terra(b: &float, f: int32, i: &float, bk: &float, sm: &float, ev: &float, v: &float, sr: &uint8)
+                [fn](b, f, i, bk, sm, ev, v)
+            end
+        end
+    end
+end
+
 print("1. scheduled.graph_program.compile")
 do
     local gs = D.Classified.GraphSlice(
@@ -30,7 +62,7 @@ do
         L{D.Classified.Literal(100), D.Classified.Literal(0.5)},
         L(), L(), L(), L(), L(), L(),
         1, 0)
-    local gp = gs:schedule(D.Classified.Transport(44100, 512, 120, 0, 4, 4, 0, false, 0, 0), D.Classified.TempoMap(L()))
+    local gp = gs:schedule(D.Classified.Transport(44100, 512, 120, 4, 4, 0, false, 0, 0, false, false, 0, 0, 0, 0, 0), D.Classified.TempoMap(L()))
     local unit = gp:compile()
     check(unit ~= nil, "kernel unit returned")
     check(unit.fn ~= nil, "unit fn returned")
@@ -38,9 +70,10 @@ do
     local BS = gp.transport.buffer_size
     local total = math.max(gp.total_buffers * BS, 1)
     local bufs = terralib.new(float[total])
-    local state_raw = KS.alloc_unit_state(unit)
+    local state_raw, _ = KS.alloc_unit_state(unit)
     for i = 0, total - 1 do bufs[i] = 0.0 end
-    unit.fn(bufs, BS, state_raw)
+    local thunk = wrap_unit_call(unit, 0)
+    thunk(bufs, BS, state_raw)
     local out0 = bufs[gp.graph.out_buf * BS]
     check(math.abs(out0) > 0.01, "graph output is non-zero")
     print("  PASS")
@@ -50,28 +83,40 @@ print("2. scheduled.track_program.compile")
 do
     local project = D.Editor.Project(
         "track_compile", nil, 1,
-        D.Editor.Transport(44100, 64, 120, 0, 4, 4, D.Editor.QNone, false, nil),
-        L{D.Editor.Track(1, "T1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+        D.Editor.Transport(44100, 64, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
+        L{D.Editor.Track(1, "T1", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
             D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Square", D.Authored.SquareOsc,
                     L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
-                    L(), nil, nil, nil, true, nil)),
+                    L(), nil, nil, nil, true, true, nil)),
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(11, "Gain", D.Authored.GainNode,
                     L{D.Editor.ParamValue(0, "gain", 0.75, 0, 4, D.Editor.StaticValue(0.75), D.Editor.Replace, D.Editor.NoSmoothing)},
-                    L(), nil, nil, nil, true, nil))
+                    L(), nil, nil, nil, true, true, nil))
             }),
-            L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
-        L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
+            L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil)},
+        L(), L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
     local tp = project:lower():resolve(TICKS_PER_BEAT):classify():schedule().track_programs[1]
     local unit = tp:compile()
     local outL = terralib.new(float[64])
     local outR = terralib.new(float[64])
-    local state_raw = KS.alloc_unit_state(unit)
+    local state_raw, _ = KS.alloc_unit_state(unit)
     for i = 0, 63 do outL[i] = 0.0; outR[i] = 0.0 end
-    unit.fn(outL, outR, 64, state_raw)
+    -- Track fn signature: (ol, or_, frames [, state: &TrackStateN])
+    local state_t = unit.state_t; local fn = unit.fn
+    local thunk
+    if terralib.sizeof(state_t) > 0 then
+        thunk = terra(ol: &float, or_: &float, f: int32, sr: &uint8)
+            [fn](ol, or_, f, [&state_t](sr))
+        end
+    else
+        thunk = terra(ol: &float, or_: &float, f: int32, sr: &uint8)
+            [fn](ol, or_, f)
+        end
+    end
+    thunk(outL, outR, 64, state_raw)
     check(math.abs(outL[0]) > 0.01, "track unit produces sound")
     check(approx(outL[0], outR[0], 0.001), "center pan produces equal L/R")
     print("  PASS")
@@ -81,26 +126,26 @@ print("3. scheduled.project.compile")
 do
     local project = D.Editor.Project(
         "project_compile", nil, 1,
-        D.Editor.Transport(44100, 64, 120, 0, 4, 4, D.Editor.QNone, false, nil),
+        D.Editor.Transport(44100, 64, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
         L{
-            D.Editor.Track(1, "T1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+            D.Editor.Track(1, "T1", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
                 D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.DeviceChain(L{
-                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil)),
-                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(11, "Gain", D.Authored.GainNode, L{D.Editor.ParamValue(0, "gain", 1, 0, 4, D.Editor.StaticValue(0.4), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))
+                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, true, nil)),
+                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(11, "Gain", D.Authored.GainNode, L{D.Editor.ParamValue(0, "gain", 1, 0, 4, D.Editor.StaticValue(0.4), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, true, nil))
                 }),
-                L(), L(), L(), nil, nil, false, false, false, false, false, nil),
-            D.Editor.Track(2, "T2", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+                L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil),
+            D.Editor.Track(2, "T2", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
                 D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.DeviceChain(L{
-                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(20, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil)),
-                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(21, "Gain", D.Authored.GainNode, L{D.Editor.ParamValue(0, "gain", 1, 0, 4, D.Editor.StaticValue(0.2), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))
+                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(20, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, true, nil)),
+                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(21, "Gain", D.Authored.GainNode, L{D.Editor.ParamValue(0, "gain", 1, 0, 4, D.Editor.StaticValue(0.2), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, true, nil))
                 }),
-                L(), L(), L(), nil, nil, false, false, false, false, false, nil)
+                L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil)
         },
-        L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
+        L(), L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
     local kernel = project:lower():resolve(TICKS_PER_BEAT):classify():schedule():compile()
     local entry = kernel:entry_fn()
@@ -116,7 +161,7 @@ end
 
 print("4. scheduled.node_program.compile")
 do
-    local unit = D.Scheduled.NodeProgram(D.Scheduled.NodeJob(1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), L(), L(), L(), L(), L(), D.Scheduled.Transport(44100,512,120,0,4,4,0,false,0,0), D.Scheduled.TempoMap(L())):compile()
+    local unit = D.Scheduled.NodeProgram(D.Scheduled.NodeJob(1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), L(), L(), L(), L(), L(), D.Scheduled.Transport(44100,512,120, 4,4,0,false,0,0, false, false, 0, 0, 0, 0, 0), D.Scheduled.TempoMap(L())):compile()
     check(unit ~= nil, "node program unit returned")
     check(unit.fn ~= nil, "node program fn returned")
     print("  PASS")
@@ -124,7 +169,7 @@ end
 
 print("5. scheduled.mod_program.compile")
 do
-    local unit = D.Scheduled.ModProgram(D.Scheduled.ModJob(0,0,0,0,0,0,0,0,0,false,0,0,0,0,0,D.Scheduled.Binding(0,0)), L(), L(), D.Scheduled.Transport(44100,512,120,0,4,4,0,false,0,0), D.Scheduled.TempoMap(L())):compile()
+    local unit = D.Scheduled.ModProgram(D.Scheduled.ModJob(0,0,0,0,0,0,0,0,0,false,0,0,0,0,0,D.Scheduled.Binding(0,0)), L(), L(), D.Scheduled.Transport(44100,512,120, 4,4,0,false,0,0, false, false, 0, 0, 0, 0, 0), D.Scheduled.TempoMap(L())):compile()
     check(unit ~= nil, "mod program unit returned")
     check(unit.fn ~= nil, "mod program fn returned")
     print("  PASS")
@@ -132,7 +177,7 @@ end
 
 print("6. scheduled.clip_program.compile")
 do
-    local unit = D.Scheduled.ClipProgram(D.Scheduled.ClipJob(0,0,0,0,0,0,0,D.Scheduled.Binding(0,0),false,0,0,0,0), L(), D.Scheduled.Transport(44100,512,120,0,4,4,0,false,0,0), D.Scheduled.TempoMap(L())):compile()
+    local unit = D.Scheduled.ClipProgram(D.Scheduled.ClipJob(0,0,0,0,0,0,0,D.Scheduled.Binding(0,0),false,0,0,0,0), L(), D.Scheduled.Transport(44100,512,120, 4,4,0,false,0,0, false, false, 0, 0, 0, 0, 0), D.Scheduled.TempoMap(L())):compile()
     check(unit ~= nil, "clip program unit returned")
     check(unit.fn ~= nil, "clip program fn returned")
     print("  PASS")
@@ -140,7 +185,7 @@ end
 
 print("7. scheduled.send_program.compile")
 do
-    local unit = D.Scheduled.SendProgram(D.Scheduled.SendJob(0,0,D.Scheduled.Binding(0,0),false,false), L(), D.Scheduled.Transport(44100,512,120,0,4,4,0,false,0,0), D.Scheduled.TempoMap(L())):compile()
+    local unit = D.Scheduled.SendProgram(D.Scheduled.SendJob(0,0,D.Scheduled.Binding(0,0),false,false), L(), D.Scheduled.Transport(44100,512,120, 4,4,0,false,0,0, false, false, 0, 0, 0, 0, 0), D.Scheduled.TempoMap(L())):compile()
     check(unit ~= nil, "send program unit returned")
     check(unit.fn ~= nil, "send program fn returned")
     print("  PASS")
@@ -148,7 +193,7 @@ end
 
 print("8. scheduled.mix_program.compile")
 do
-    local unit = D.Scheduled.MixProgram(D.Scheduled.MixJob(0,0,D.Scheduled.Binding(0,0)), L(), D.Scheduled.Transport(44100,512,120,0,4,4,0,false,0,0), D.Scheduled.TempoMap(L())):compile()
+    local unit = D.Scheduled.MixProgram(D.Scheduled.MixJob(0,0,D.Scheduled.Binding(0,0)), L(), D.Scheduled.Transport(44100,512,120, 4,4,0,false,0,0, false, false, 0, 0, 0, 0, 0), D.Scheduled.TempoMap(L())):compile()
     check(unit ~= nil, "mix program unit returned")
     check(unit.fn ~= nil, "mix program fn returned")
     print("  PASS")
@@ -156,7 +201,7 @@ end
 
 print("9. scheduled.output_program.compile")
 do
-    local unit = D.Scheduled.OutputProgram(D.Scheduled.OutputJob(0,0,0,D.Scheduled.Binding(0,0),D.Scheduled.Binding(0,0)), L(), D.Scheduled.Transport(44100,512,120,0,4,4,0,false,0,0), D.Scheduled.TempoMap(L())):compile()
+    local unit = D.Scheduled.OutputProgram(D.Scheduled.OutputJob(0,0,0,D.Scheduled.Binding(0,0),D.Scheduled.Binding(0,0)), L(), D.Scheduled.Transport(44100,512,120, 4,4,0,false,0,0, false, false, 0, 0, 0, 0, 0), D.Scheduled.TempoMap(L())):compile()
     check(unit ~= nil, "output program unit returned")
     check(unit.fn ~= nil, "output program fn returned")
     print("  PASS")

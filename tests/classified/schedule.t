@@ -13,7 +13,7 @@ local function approx(a,b,t) return math.abs(a-b) < (t or 0.001) end
 
 print("1. classified.transport.schedule")
 do
-    local t = D.Classified.Transport(48000, 1024, 140, 0.1, 3, 8, 4, true, 1920, 7680)
+    local t = D.Classified.Transport(48000, 1024, 140, 3, 8, 4, true, 1920, 7680, false, false, 0, 0, 0, 0, 0)
     local r = t:schedule()
     check(r.sample_rate == 48000, "sample_rate")
     check(r.buffer_size == 1024, "buffer_size")
@@ -69,7 +69,7 @@ do
         L(), L(), L(), L(), L(), L(),
         1, 0
     )
-    local r = gs:schedule(D.Classified.Transport(44100, 512, 120, 0, 4, 4, 0, false, 0, 0), D.Classified.TempoMap(L()))
+    local r = gs:schedule(D.Classified.Transport(44100, 512, 120, 4, 4, 0, false, 0, 0, false, false, 0, 0, 0, 0, 0), D.Classified.TempoMap(L()))
     check(r.graph.graph_id == 200, "graph_id")
     check(#r.node_programs == 2, "2 node programs")
     check(r.graph.node_job_count == 2, "job count")
@@ -83,7 +83,7 @@ do
     local ts = D.Classified.TrackSlice(
         D.Classified.Track(42, 2, 0, 0, 0,
             D.Classified.Binding(0, 0), D.Classified.Binding(0, 1),
-            100, 0, 0, 0, 0, 0, 0, nil, nil, false, false, false, false),
+            100, nil, nil, false, false, false, false),
         L{
             D.Classified.Param(0, 0, 1, 0, 4, D.Classified.Binding(0, 0), 0, 0, 0, 0, 0, 0),
             D.Classified.Param(1, 0, 0, -1, 1, D.Classified.Binding(0, 1), 0, 0, 0, 0, 0, 0),
@@ -93,7 +93,7 @@ do
         L(), L(), L(), L(), L(), L(),
         D.Classified.GraphSlice(L{D.Classified.Graph(100, 0, 1, 0, 0, 0, 0, L(), 0, 0, 0, 0, 0, 0)}, L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), 0, 0)
     )
-    local r = ts:schedule(D.Classified.Transport(44100, 512, 120, 0, 4, 4, 0, false, 0, 0), D.Classified.TempoMap(L()))
+    local r = ts:schedule(D.Classified.Transport(44100, 512, 120, 4, 4, 0, false, 0, 0, false, false, 0, 0, 0, 0, 0), D.Classified.TempoMap(L()))
     check(r.track.track_id == 42, "track_id")
     check(r.track.work_buf == 0, "work_buf=0")
     check(r.track.mix_in_buf == 1, "mix_in_buf=1")
@@ -107,18 +107,18 @@ print("6. classified.project.schedule")
 do
     local project = D.Editor.Project(
         "Test", nil, 1,
-        D.Editor.Transport(44100, 256, 120, 0, 4, 4, D.Editor.QNone, false, nil),
-        L{D.Editor.Track(1, "T1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+        D.Editor.Transport(44100, 256, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
+        L{D.Editor.Track(1, "T1", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
             D.Editor.ParamValue(0, "v", 1, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "p", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                     10, "G", D.Authored.GainNode,
                     L{D.Editor.ParamValue(0, "g", 1, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing)},
-                    L(), nil, nil, nil, true, nil))
+                    L(), nil, nil, nil, true, true, nil))
             }),
-            L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
-        L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
+            L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil)},
+        L(), L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
     local s = project:lower():resolve(TICKS_PER_BEAT):classify():schedule()
     check(#s.track_programs >= 1, "track programs scheduled")

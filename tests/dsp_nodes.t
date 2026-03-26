@@ -41,23 +41,23 @@ local function run_device(name, kind, params, volume, include_source)
         devices:insert(D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
             9, "Src", D.Authored.SquareOsc,
             L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
-            L(), nil, nil, nil, true, nil
+            L(), nil, nil, nil, true, true, nil
         )))
     end
     devices:insert(D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-        10, name, kind, editor_params, L(), nil, nil, nil, true, nil
+        10, name, kind, editor_params, L(), nil, nil, nil, true, true, nil
     )))
 
     local project = D.Editor.Project(
         name, nil, 1,
-        D.Editor.Transport(44100, FRAMES, 120, 0, 4, 4, D.Editor.QNone, false, nil),
-        L{D.Editor.Track(1, "T", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+        D.Editor.Transport(44100, FRAMES, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
+        L{D.Editor.Track(1, "T", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
             D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(volume), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "pan", -1, -1, 1, D.Editor.StaticValue(-1), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(devices),
-            L(), L(), L(), nil, nil, false, false, false, false, false, nil
+            L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil
         )},
-        L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
+        L(), L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L())
     )
 
@@ -161,44 +161,44 @@ print("Multi-track: Track1(gain=0.4, vol=1.0) + Track2(gain=0.2, vol=0.5)")
 do
     local project = D.Editor.Project(
         "multi", nil, 1,
-        D.Editor.Transport(44100, FRAMES, 120, 0, 4, 4, D.Editor.QNone, false, nil),
+        D.Editor.Transport(44100, FRAMES, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
         L{
-            D.Editor.Track(1, "T1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+            D.Editor.Track(1, "T1", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
                 D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(1.0), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.ParamValue(1, "pan", -1, -1, 1, D.Editor.StaticValue(-1), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.DeviceChain(L{
                     D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                         9, "Src1", D.Authored.SquareOsc,
                         L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
-                        L(), nil, nil, nil, true, nil
+                        L(), nil, nil, nil, true, true, nil
                     )),
                     D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                         10, "G1", D.Authored.GainNode,
                         L{D.Editor.ParamValue(0, "gain", 0.4, 0, 4, D.Editor.StaticValue(0.4), D.Editor.Replace, D.Editor.NoSmoothing)},
-                        L(), nil, nil, nil, true, nil
+                        L(), nil, nil, nil, true, true, nil
                     ))
                 }),
-                L(), L(), L(), nil, nil, false, false, false, false, false, nil
+                L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil
             ),
-            D.Editor.Track(2, "T2", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+            D.Editor.Track(2, "T2", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
                 D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.ParamValue(1, "pan", -1, -1, 1, D.Editor.StaticValue(-1), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.DeviceChain(L{
                     D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                         19, "Src2", D.Authored.SquareOsc,
                         L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
-                        L(), nil, nil, nil, true, nil
+                        L(), nil, nil, nil, true, true, nil
                     )),
                     D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                         20, "G2", D.Authored.GainNode,
                         L{D.Editor.ParamValue(0, "gain", 0.2, 0, 4, D.Editor.StaticValue(0.2), D.Editor.Replace, D.Editor.NoSmoothing)},
-                        L(), nil, nil, nil, true, nil
+                        L(), nil, nil, nil, true, true, nil
                     ))
                 }),
-                L(), L(), L(), nil, nil, false, false, false, false, false, nil
+                L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil
             ),
         },
-        L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
+        L(), L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L())
     )
 
@@ -221,30 +221,30 @@ print("Serial chain: DC 1.0 → Gain(0.8) → Gain(0.5) → vol=1.0")
 do
     local project = D.Editor.Project(
         "serial", nil, 1,
-        D.Editor.Transport(44100, FRAMES, 120, 0, 4, 4, D.Editor.QNone, false, nil),
-        L{D.Editor.Track(1, "T", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+        D.Editor.Transport(44100, FRAMES, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
+        L{D.Editor.Track(1, "T", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
             D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(1.0), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "pan", -1, -1, 1, D.Editor.StaticValue(-1), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                     9, "Src", D.Authored.SquareOsc,
                     L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
-                    L(), nil, nil, nil, true, nil
+                    L(), nil, nil, nil, true, true, nil
                 )),
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                     10, "G1", D.Authored.GainNode,
                     L{D.Editor.ParamValue(0, "g", 0.8, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing)},
-                    L(), nil, nil, nil, true, nil
+                    L(), nil, nil, nil, true, true, nil
                 )),
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                     11, "G2", D.Authored.GainNode,
                     L{D.Editor.ParamValue(0, "g", 0.5, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing)},
-                    L(), nil, nil, nil, true, nil
+                    L(), nil, nil, nil, true, true, nil
                 )),
             }),
-            L(), L(), L(), nil, nil, false, false, false, false, false, nil
+            L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil
         )},
-        L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
+        L(), L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L())
     )
 

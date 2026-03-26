@@ -82,7 +82,7 @@ local function rebuild_native_body(body, params, note_fx, post_fx)
         body.id, body.name, body.kind,
         params, body.modulators,
         note_fx, post_fx,
-        body.preset, body.enabled, body.meta
+        body.preset, body.active, body.enabled, body.meta
     )
 end
 
@@ -234,12 +234,14 @@ end
 
 local function rebuild_track(track, volume, devices)
     return D.Editor.Track(
-        track.id, track.name, track.channels, track.kind,
-        track.input, volume, track.pan, devices,
-        track.clips, track.launcher_slots, track.sends,
-        track.output_track_id, track.group_track_id,
-        track.muted, track.soloed, track.armed,
-        track.monitor_input, track.phase_invert, track.meta
+        track.id, track.name, track.color, track.comment,
+        track.channels, track.kind,
+        track.input, track.output, volume, track.pan, devices,
+        track.clips, track.launcher_clips, track.launcher_slots, track.sends,
+        track.group_track_id,
+        track.active, track.muted, track.soloed, track.armed,
+        track.monitor_input, track.phase_invert,
+        track.crossfade_mode, track.remote_controls, track.meta
     )
 end
 
@@ -259,7 +261,7 @@ local function rebuild_project(proj, tracks)
     return D.Editor.Project(
         proj.name, proj.author, proj.format_version,
         proj.transport, tracks, proj.scenes,
-        proj.tempo_map, proj.assets
+        proj.cue_markers, proj.tempo_map, proj.assets
     )
 end
 

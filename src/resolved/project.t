@@ -6,7 +6,13 @@ local function L(t) if t == nil then return List() end; local l = List(); for i 
 
 return function(types)
 local C = types.Classified
-    local node_state_sizes = { [10] = 1, [11] = 4, [12] = 2, [156] = 1, [157] = 2 }
+    -- Floats of persistent state needed per node kind.
+    -- Oscillators (28=Sine, 29=Saw, 30=Square) each need 1 float phase accumulator.
+    local node_state_sizes = {
+        [10] = 1, [11] = 4, [12] = 2,   -- delay, reverb, chorus
+        [28] = 1, [29] = 1, [30] = 1,   -- SineOsc, SawOsc, SquareOsc: phase [0,1)
+        [156] = 1, [157] = 2,
+    }
     local mod_state_sizes = { [156] = 1, [157] = 2 }
 
     local function to_list(tbl) local l = L(); for i = 1, #tbl do l:insert(tbl[i]) end; return l end

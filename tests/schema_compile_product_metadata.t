@@ -7,7 +7,9 @@ local is_terra_func = terralib.isfunction or function(v)
     return type(v) == "userdata" or type(v) == "cdata" or type(v) == "function"
 end
 
-terra unit_nop()
+-- unit_nop must accept &int32 to satisfy the Unit ABI ownership invariant:
+-- fn must explicitly take &state_t as a parameter.
+terra unit_nop(state: &int32)
 end
 
 local schema CompileMetaDemo

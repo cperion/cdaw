@@ -26,8 +26,8 @@ local function make_project(freq, gain, volume)
     volume = volume or 0.8
     return D.Editor.Project(
         "AudioDemo", nil, 1,
-        D.Editor.Transport(44100, 512, 120, 0, 4, 4, D.Editor.QNone, false, nil),
-        L{D.Editor.Track(1, "Synth", 2, D.Editor.AudioTrack, D.Editor.NoInput,
+        D.Editor.Transport(44100, 512, 120, 4, 4, D.Editor.QNone, false, nil, false, nil),
+        L{D.Editor.Track(1, "Synth", nil, nil, 2, D.Editor.AudioTrack, D.Editor.NoInput, D.Editor.MasterOutput,
             D.Editor.ParamValue(0, "vol", 1, 0, 4,
                 D.Editor.StaticValue(volume), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "pan", 0, -1, 1,
@@ -38,16 +38,17 @@ local function make_project(freq, gain, volume)
                     L{D.Editor.ParamValue(0, "freq", 440, 20, 20000,
                         D.Editor.StaticValue(freq),
                         D.Editor.Replace, D.Editor.NoSmoothing)},
-                    L(), nil, nil, nil, true, nil)),
+                    L(), nil, nil, nil, true, true, nil)),
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
                     11, "Gain", D.Authored.GainNode,
                     L{D.Editor.ParamValue(0, "gain", 1, 0, 4,
                         D.Editor.StaticValue(gain),
                         D.Editor.Replace, D.Editor.NoSmoothing)},
-                    L(), nil, nil, nil, true, nil)),
+                    L(), nil, nil, nil, true, true, nil)),
             }),
-            L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
-        L(),
+            L(), L(), L(), L(), nil, true, false, false, false, false, false, D.Editor.CrossBoth, L(), nil)},
+        L(),  -- scenes
+        L(),  -- cue_markers
         D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
 end
