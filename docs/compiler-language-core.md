@@ -5,9 +5,8 @@ Status: exploratory design note
 See also:
 
 - `docs/terra-compiler-pattern.md`
-- `docs/asdl-purity-refactor-plan.md`
-- `lib/schema.t`
-- `/home/cedric/dev/terra/src/asdl.lua`
+- `schema.t` — the implementation (`github.com/cperion/schema.t`)
+- `asdl.lua` — the Terra standard ASDL library (ships with Terra)
 
 ## 1. Thesis
 
@@ -30,7 +29,7 @@ of ASDL**, not a replacement for ASDL itself.
 
 ### 1.1 Enforcement-first purpose
 
-`lib/schema.t` should be judged first as an **enforcement front-end** for
+`schema.t` should be judged first as an **enforcement front-end** for
 `docs/terra-compiler-pattern.md`.
 
 Its job is not to maximize surface cleverness. Its job is to enforce the
@@ -50,7 +49,7 @@ It is:
 > does this enforce the Terra Compiler Pattern more strongly, more clearly, or
 > earlier?
 
-That means `lib/schema.t` should maximize:
+That means `schema.t` should maximize:
 
 - explicit public boundaries
 - implicit per-method memoization semantics
@@ -68,7 +67,7 @@ And it should minimize:
 
 In short:
 
-> `lib/schema.t` exists to make `docs/terra-compiler-pattern.md` harder to
+> `schema.t` exists to make `docs/terra-compiler-pattern.md` harder to
 > violate.
 
 ---
@@ -97,8 +96,8 @@ This is an ideal substrate:
 - it already gives us typed construction and uniqueness semantics
 - it does **not** impose application architecture above the type layer
 
-Therefore the new language should lower to ordinary ASDL contexts plus method
-installation/wrapping. It should not invent a second type runtime.
+Therefore the language lowers to ordinary ASDL contexts plus method
+installation/wrapping. It does not invent a second type runtime.
 
 ---
 
@@ -239,45 +238,66 @@ This is likely the minimal surface that still captures:
 
 The memoization boundary is implicit in the `methods` declaration itself.
 
-### 4.4 Compile products
+### 4.4 Compile products and the `Unit` intrinsic
 
-The language must treat reusable compiled artifacts as a real semantic category,
-not just an incidental record shape.
+The language treats reusable compiled artifacts as a real semantic category.
 
-The canonical compile product is:
+The canonical compile product is the `Unit` intrinsic — always available, never
+declared, reserved name:
 
-```lua
-Kernel.Unit = (TerraFunc fn, TerraType state_t)
+```
+Unit = { fn: TerraFunc, state_t: TerraType }
 ```
 
-And the canonical surface form should stay explicit first:
+`fn` is the closed, typed, JIT-compiled Terra function. `state_t` is its
+exclusively owned runtime ABI — the struct it reads and writes. Nobody else
+reads the state. Nobody else writes it. The mutation is invisible to the outside.
 
-```lua
-phase Kernel
-    record Unit
-        fn: TerraFunc
-        state_t: TerraType
-    end
-end
-```
+Terminal pipeline transitions must return `Unit`. Non-terminal transitions must
+not. This is enforced at schema parse time.
 
-This matters because `{ fn, state_t }` is the ownership boundary for reusable
-JIT-compiled units:
+#### `Unit.leaf` and `Unit.compose`
 
-- `fn` is the executable artifact
-- `state_t` is the unit's owned runtime ABI
+Two factory functions are the only sanctioned paths to a valid `Unit`. Direct
+`Unit(fn, state_t)` construction is available but subjects the caller to the
+same invariant checks.
 
-A compile method that owns local state should normally return such a product
-rather than a naked function.
+**`Unit.leaf(state_t, params, body(state_sym, params)) -> Unit`**
 
-At the semantic level, this construct belongs to the category:
+For a node with its own persistent typed state. `state_t` is a Terra struct.
+`body` is a Lua function returning a Terra quote; it receives a typed `&state_t`
+symbol. The resulting fn signature is `terra(params..., state: &state_t)`. No
+`&uint8`. No slot arithmetic. No manual casting.
 
-- **compile product** — a reusable compiled artifact that owns both executable
-  behavior and runtime ABI
+**`Unit.compose(children, params, body(state_sym, annotated, params)) -> Unit`**
 
-This should remain an ordinary explicit type declaration until a more compact
-surface form proves clearly better. The language should not introduce special
-compile-product sugar merely to save a few tokens.
+For a node that owns the aggregate of its children's states. The schema
+auto-composes a typed `ComposedState` struct from each non-empty child
+`state_t`. Each child annotation carries:
+
+- `.fn` — the child's compiled Terra function
+- `.state_t` — the child's state type
+- `.has_state` — convenience bool
+- `.state_expr` — Terra quote `&state.sN` or nil
+- `.call(...)` — one-line typed dispatch: `emit(kid.call(buf, frames))`
+
+The resulting fn signature is `terra(params..., state: &ComposedState)`.
+
+#### Invariants enforced by the `Unit` constructor
+
+All three construction paths (leaf, compose, direct) pass through a single
+validated constructor that enforces:
+
+1. `fn` must be a `TerraFunc` — not a Lua function, not nil
+2. `state_t` must be a `TerraType`
+3. If `state_t` is non-empty, `fn` must accept `&state_t` as a parameter —
+   ABI ownership enforced structurally. `&uint8` or missing state param → error.
+4. `fn:compile()` is called immediately — JIT runs once at Unit creation, not
+   lazily on the first audio callback
+
+The `state_t` field is not a hint. It is the full owned ABI boundary. The
+function was given this type at compile time. It baked every field offset. It
+will never receive anything else.
 
 ### 4.5 Unified documentation
 
@@ -554,6 +574,21 @@ A public method may depend only on:
 
 It must not hide semantic dependencies in ambient mutable context.
 
+Arguments typed `table` are a **parse error**. `table` is a ctx bag — it hides
+arbitrary semantic dependencies from the memoize key. The memoize key is only
+as complete as the explicit argument list. If something is in a `table` but not
+in the key, the cache is wrong. Not a style issue — a correctness bug.
+
+The hierarchy:
+
+```
+WORST:  void*          → "I know nothing about this memory"
+BAD:    ctx: &Context  → "I'm a bag of maybe-relevant state"
+ERROR:  arg: table     → parse error in schema.t; banned
+OK:     self + args    → every dependency named and typed
+BEST:   self only      → everything needed is in the ASDL node
+```
+
 ### Rule C — Phase direction is explicit
 
 Methods may return only same-phase or later-phase types unless a construct is
@@ -622,6 +657,30 @@ The language must preserve the distinction between:
 
 A smaller syntax is good only if these stages remain easier to reason about, not
 more blurred.
+
+---
+
+## 6.1 Enforcement gaps closed in `schema.t`
+
+These rules are not merely documented — they are enforced structurally at schema
+parse or construction time. A violation produces a Terra error with file name and
+line number, not a silent bug or runtime crash.
+
+| Gap | What is caught | When |
+|-----|---------------|------|
+| **`table` arg** | Method argument typed `table` — ctx bag hides memoize deps | Parse time |
+| **`Unit` ABI ownership** | `fn` does not accept `&state_t` as parameter | `Unit()` call |
+| **`Unit` fn type** | `fn` is not a TerraFunc | `Unit()` call |
+| **`Unit` state type** | `state_t` is not a TerraType | `Unit()` call |
+| **Forced JIT** | `fn:compile()` called at Unit creation, not on first audio callback | `Unit()` call |
+| **Non-terminal Unit (direct)** | Phase not adjacent to terminal returns `Unit` | Parse time |
+| **Non-terminal Unit (schema unit type)** | Intermediate transition returns an `is_unit` type | Parse time |
+| **Compose struct identity** | `terralib.memoize` on Terra type identity, not `tostring` — no collision | `Unit.compose` |
+
+These are not aspirational. Every item in the table fires today. The remaining
+violation vector is Lua functions closing over ambient state not in the memoize
+key — Lua cannot prevent this statically, but the `table` arg ban removes the
+most common mechanism for it.
 
 ---
 
@@ -883,9 +942,9 @@ Everything else should be derived.
 
 ---
 
-## 14. Feature admission test for `lib/schema.t`
+## 14. Feature admission test for `schema.t`
 
-A proposed feature belongs in `lib/schema.t` only if it passes all of the
+A proposed feature belongs in `schema.t` only if it passes all of the
 following tests.
 
 ### 14.1 Pattern enforcement test
@@ -985,7 +1044,7 @@ bar.
 
 ## 15. Practical acceptance rule
 
-A feature should enter `lib/schema.t` only if:
+A feature should enter `schema.t` only if:
 
 1. it enforces the compiler pattern
 2. it expresses a real semantic fact

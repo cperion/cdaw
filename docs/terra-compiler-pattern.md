@@ -356,7 +356,7 @@ schema MyDomain
         end
 
         methods
-            Expr:compile(ctx: table) -> terra_quote
+            Expr:compile(sample_rate: number) -> terra_quote
         end
     end
 
@@ -461,6 +461,23 @@ Every rule is checked at parse time and reported through `lex:error()` as a stan
 **Methods**:
 - Return type's phase ≥ receiver type's phase (no backward lowering).
 - Exhaustiveness: at first call, every variant of the sum type must have an implementation.
+- Arguments typed `table` are a **parse error** — `table` is a ctx bag; it hides semantic dependencies from the memoize key. Every argument must be explicitly typed.
+- Methods in non-terminal pipeline phases that return `Unit` are a **parse error** — `Unit` may only be returned from the phase immediately preceding the terminal (the compilation boundary). Intermediate phases must return ASDL data types.
+
+**Pipeline**:
+- Declared stages must exist as phases.
+- Each pipeline edge must have at least one transition method.
+- No skipping — a method may only return a type from the directly next phase.
+- Terminal transitions must return `Unit` (or a schema-declared unit type).
+- Non-terminal transitions must not return `Unit`.
+- Transition verb must be consistent across all types on the same edge.
+
+**`Unit` constructor**:
+- `fn` must be a `TerraFunc`.
+- `state_t` must be a `TerraType`.
+- If `state_t` is non-empty, `fn` must accept `&state_t` as a parameter — ABI ownership enforced structurally. A function that takes `&uint8` or omits the state parameter entirely fails immediately.
+- `fn:compile()` is forced at construction time — JIT runs once here, not lazily on the first audio callback.
+- The canonical construction paths are `Unit.leaf` and `Unit.compose`. Direct `Unit(fn, state_t)` construction is available but subject to the same checks.
 
 **Unique**:
 - Only on types that will benefit from identity comparison.
@@ -499,9 +516,44 @@ The parsed constraint becomes a Lua predicate function wrapped around the ASDL c
 
 The schema DSL is **optional**. You can always write raw `context:Define()` strings. The DSL is for projects where humans author ASDL definitions — UI libraries, game engines, DSLs you're inventing. Projects where a spec JSON generates ASDL programmatically (like the MapLibre compiler) don't need it.
 
-The schema DSL is a **separate project** — a reusable Terra language extension. It produces the same ASDL contexts and types that `context:Define()` produces. Everything downstream (ASDL methods, metamethods, `terralib.memoize`, the compilation pattern) works identically whether the ASDL came from the schema DSL or from a raw string.
+The schema DSL is a **separate project** — a reusable Terra language extension hosted at `github.com/cperion/schema.t`. It produces the same ASDL contexts and types that `context:Define()` produces. Everything downstream (ASDL methods, metamethods, `terralib.memoize`, the compilation pattern) works identically whether the ASDL came from the schema DSL or from a raw string. Consumers reference it as a git submodule and import the single file: `import "path/to/schema"`.
 
 The schema DSL is itself an example of the exotype pattern: it uses Terra's language extension API (a form of `__methodmissing` at the parser level — the `expression`/`statement` functions are invoked when the keyword is encountered), it generates ASDL types (domain modeling), and it installs exotype properties (constraint checkers, method traps) on the generated types. The tool is built with the same tools it validates.
+
+#### `Unit`, `Unit.leaf`, and `Unit.compose`
+
+The schema DSL installs a `Unit` intrinsic — the canonical compile product — and two factory functions that are the only sanctioned ways to construct one.
+
+`Unit` is `{ fn: TerraFunc, state_t: TerraType }`. Every compile-boundary method returns it. The `fn` is a closed, typed Terra function. The `state_t` is the full owned runtime ABI — the struct that `fn` reads and writes exclusively.
+
+```lua
+-- Unit.leaf: a node with its own persistent typed state.
+-- fn signature: terra(params..., state: &state_t)
+Unit.leaf(state_t, params, function(state_sym, params)
+    return quote
+        -- state_sym is &state_t, typed, no casting
+        state_sym.phase = state_sym.phase + freq / sample_rate
+        buf[i] = sinf(2 * PI * state_sym.phase)
+    end
+end)
+
+-- Unit.compose: a node that owns the aggregate of its children's states.
+-- The schema auto-builds a ComposedState struct from each child's state_t.
+-- fn signature: terra(params..., state: &ComposedState)
+Unit.compose(children, params, function(state_sym, annotated, params)
+    return quote
+        escape
+            for _, kid in ipairs(annotated) do
+                -- kid.call(...) dispatches correctly whether child has state or not.
+                -- One line. No manual has_state/state_expr boilerplate.
+                emit(kid.call(buf, frames))
+            end
+        end
+    end
+end)
+```
+
+`Unit.leaf` and `Unit.compose` both route through the validated `Unit(fn, state_t)` constructor, so the ABI ownership check and forced JIT apply automatically. There is no way to build a `Unit` that passes `&uint8` instead of `&state_t`. The struct type is declared, composed, and baked at compile time — not cast at runtime.
 
 
 ## The pattern
