@@ -7,6 +7,7 @@
 local DAW = require("daw")
 local D = DAW.types
 local List = require("terralist")
+local KS = require("tests/kernel_support")
 local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 local TICKS_PER_BEAT = 960
 local C = terralib.includec("stdio.h")
@@ -117,6 +118,7 @@ print("Phase 5: Scheduled → Kernel")
 local kernel = scheduled:compile()
 check(kernel ~= nil, "Kernel should not be nil")
 local render = kernel:entry_fn()
+local state_raw = KS.alloc_state(kernel)
 check(render ~= nil, "Should have a compiled render function")
 
 print("Phase 6: Kernel entry")
@@ -136,7 +138,7 @@ for i = 0, FRAMES - 1 do
 end
 
 -- Call the compiled render!
-render(output_left, output_right, FRAMES)
+render(output_left, output_right, FRAMES, state_raw)
 
 -- ── Check output ──
 print("")

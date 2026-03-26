@@ -1,12 +1,43 @@
--- impl2/scheduled/project.t
+-- src/scheduled/project.t
 -- Scheduled.GraphProgram:compile, Scheduled.TrackProgram:compile, Scheduled.Project:compile
 
 local compile_binding_value = require("src/scheduled/compiler/binding")
 local List = require("terralist")
+local C = terralib.includec("string.h")
 local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
 return function(types)
-local K = types.Kernel
+    local K = types.Kernel
+    local Unit = types.Unit
+    local EMPTY_STATE_T = tuple()
+    local struct_id = 0
+
+    local function next_struct_name(prefix)
+        struct_id = struct_id + 1
+        return prefix .. tostring(struct_id)
+    end
+
+    local function state_is_empty(t)
+        return t == nil or t == EMPTY_STATE_T
+    end
+
+    local function make_state_type(n)
+        n = n or 0
+        if n <= 0 then return EMPTY_STATE_T end
+        return float[n]
+    end
+
+    local function make_struct_type(prefix, entries)
+        if #entries == 0 then return EMPTY_STATE_T end
+        local S = terralib.types.newstruct(next_struct_name(prefix))
+        for i = 1, #entries do S.entries:insert(entries[i]) end
+        return S
+    end
+
+    local function nil_raw_state()
+        return `([&uint8](0))
+    end
+
     local function scan_binding(binding, counts)
         if not binding then return end
         local rc = binding.rate_class
@@ -101,8 +132,6 @@ local K = types.Kernel
         return quotes
     end
 
-    local function make_state_type(n) n = n or 0; if n <= 0 then return tuple() end; return float[n] end
-
     local function graph_runtime_slot_counts(self)
         local counts = {[1]=0,[2]=0,[3]=0,[4]=0,[5]=0}
         for i = 1, #self.mod_programs do
@@ -160,26 +189,40 @@ local K = types.Kernel
         local sample_count = math.max(rate_counts[3], 1)
         local event_count = math.max(rate_counts[4], 1)
         local voice_count = math.max(rate_counts[5], 1)
-        local state_count = math.max(self.total_state_slots, 1)
+        local state_count = math.max(self.total_state_slots, 0)
+        local state_t = make_state_type(state_count)
 
         local graph_fn
         if #self.node_programs > 0 or #self.mod_programs > 0 then
-            local bufs_sym = symbol(&float, "bufs"); local frames_sym = symbol(int32, "frames")
+            local bufs_sym = symbol(&float, "bufs")
+            local frames_sym = symbol(int32, "frames")
+            local state_raw_sym = symbol(&uint8, "state_raw")
             local init_slots_sym = symbol(float[init_count], "init_slots")
             local block_slots_sym = symbol(float[block_count], "block_slots")
             local sample_slots_sym = symbol(float[sample_count], "sample_slots")
             local event_slots_sym = symbol(float[event_count], "event_slots")
             local voice_slots_sym = symbol(float[voice_count], "voice_slots")
-            local state_sym = symbol(float[state_count], "state")
-            local ctx = { diagnostics = {}, BS = buffer_size, sample_rate = self.transport.sample_rate,
-                literals = self.literals, literal_values = literal_values, block_tick = 0,
+            local state_slots_q = state_count > 0 and `([&float]([state_raw_sym])) or nil
+            local ctx = {
+                diagnostics = {},
+                BS = buffer_size,
+                sample_rate = self.transport.sample_rate,
+                literals = self.literals,
+                literal_values = literal_values,
+                block_tick = 0,
                 block_sample = eval_tick_to_sample(self.tempo_map, 0),
-                bufs_sym = bufs_sym, frames_sym = frames_sym,
-                init_slots_sym = init_slots_sym, block_slots_sym = block_slots_sym,
-                sample_slots_sym = sample_slots_sym, event_slots_sym = event_slots_sym,
-                voice_slots_sym = voice_slots_sym, state_sym = state_sym }
+                bufs_sym = bufs_sym,
+                frames_sym = frames_sym,
+                init_slots_sym = init_slots_sym,
+                block_slots_sym = block_slots_sym,
+                sample_slots_sym = sample_slots_sym,
+                event_slots_sym = event_slots_sym,
+                voice_slots_sym = voice_slots_sym,
+                state_sym = state_slots_q,
+            }
             local mod_units = {}; for i = 1, #self.mod_programs do mod_units[i] = self.mod_programs[i]:compile() end
             local node_units = {}; for i = 1, #self.node_programs do node_units[i] = self.node_programs[i]:compile() end
+            local child_state_raw_q = state_count > 0 and state_raw_sym or nil_raw_state()
             local body = terralib.newlist()
             body:insert(quote
                 for i = 0, [int32](total_floats-1) do [bufs_sym][i] = 0.0f end
@@ -188,19 +231,28 @@ local K = types.Kernel
                 for i = 0, [int32](sample_count-1) do [sample_slots_sym][i] = 0.0f end
                 for i = 0, [int32](event_count-1) do [event_slots_sym][i] = 0.0f end
                 for i = 0, [int32](voice_count-1) do [voice_slots_sym][i] = 0.0f end
-                for i = 0, [int32](state_count-1) do [state_sym][i] = 0.0f end
             end)
             body:insert(quote [emit_runtime_ops(self, ctx)] end)
-            for i = 1, #mod_units do local fn = mod_units[i].fn
-                body:insert(quote [fn]([bufs_sym],[frames_sym],&[init_slots_sym][0],&[block_slots_sym][0],&[sample_slots_sym][0],&[event_slots_sym][0],&[voice_slots_sym][0]) end) end
-            for i = 1, #node_units do local fn = node_units[i].fn
-                body:insert(quote [fn]([bufs_sym],[frames_sym],&[init_slots_sym][0],&[block_slots_sym][0],&[sample_slots_sym][0],&[event_slots_sym][0],&[voice_slots_sym][0]) end) end
-            graph_fn = terra([bufs_sym],[frames_sym])
-                var [init_slots_sym]; var [block_slots_sym]; var [sample_slots_sym]; var [event_slots_sym]; var [voice_slots_sym]; var [state_sym]
+            for i = 1, #mod_units do
+                local fn = mod_units[i].fn
+                body:insert(quote [fn]([bufs_sym], [frames_sym], & [init_slots_sym][0], & [block_slots_sym][0], & [sample_slots_sym][0], & [event_slots_sym][0], & [voice_slots_sym][0], [child_state_raw_q]) end)
+            end
+            for i = 1, #node_units do
+                local fn = node_units[i].fn
+                body:insert(quote [fn]([bufs_sym], [frames_sym], & [init_slots_sym][0], & [block_slots_sym][0], & [sample_slots_sym][0], & [event_slots_sym][0], & [voice_slots_sym][0], [child_state_raw_q]) end)
+            end
+            graph_fn = terra([bufs_sym], [frames_sym], [state_raw_sym])
+                var [init_slots_sym]
+                var [block_slots_sym]
+                var [sample_slots_sym]
+                var [event_slots_sym]
+                var [voice_slots_sym]
                 [body]
             end
-        else graph_fn = terra(bufs: &float, frames: int32) end end
-        return K.Unit(graph_fn, make_state_type(self.total_state_slots))
+        else
+            graph_fn = terra(bufs: &float, frames: int32, state_raw: &uint8) end
+        end
+        return Unit(graph_fn, state_t)
     end
 
     local function compile_track_program(self)
@@ -215,10 +267,21 @@ local K = types.Kernel
         local sample_count = math.max(rate_counts[3], 1)
         local event_count = math.max(rate_counts[4], 1)
         local voice_count = math.max(rate_counts[5], 1)
-        local state_count = math.max(self.total_state_slots, 1)
+        local mixer_state_count = math.max(self.total_state_slots, 0)
+        local mixer_state_t = make_state_type(mixer_state_count)
 
         local graph_unit = self.device_graph:compile()
         local graph_fn = graph_unit.fn
+        local graph_state_t = graph_unit.state_t
+        local has_graph_state = not state_is_empty(graph_state_t)
+        local has_mixer_state = not state_is_empty(mixer_state_t)
+        local track_state_t = make_struct_type("TrackState", (function()
+            local entries = terralib.newlist()
+            if has_mixer_state then entries:insert({ field = "mixer_slots", type = mixer_state_t }) end
+            if has_graph_state then entries:insert({ field = "graph_state", type = graph_state_t }) end
+            return entries
+        end)())
+
         local graph_buf_count = math.max(self.device_graph.total_buffers * buffer_size, 1)
         local graph_out_offset = (self.device_graph.graph.out_buf or 0) * buffer_size
         local work_offset = self.track.work_buf * buffer_size
@@ -234,18 +297,39 @@ local K = types.Kernel
             local sample_slots_sym = symbol(float[sample_count], "sample_slots")
             local event_slots_sym = symbol(float[event_count], "event_slots")
             local voice_slots_sym = symbol(float[voice_count], "voice_slots")
-            local state_sym = symbol(float[state_count], "state")
             local frames_sym = symbol(int32, "frames")
-            local ol_sym = symbol(&float, "output_left"); local or_sym = symbol(&float, "output_right")
-            local ctx = { diagnostics = {}, BS = buffer_size, sample_rate = self.transport.sample_rate,
-                literals = self.mixer_literals, literal_values = literal_values, block_tick = 0,
+            local ol_sym = symbol(&float, "output_left")
+            local or_sym = symbol(&float, "output_right")
+            local state_raw_sym = symbol(&uint8, "state_raw")
+            local state_sym = nil
+            local mixer_state_q = nil
+            local graph_state_raw_q = nil_raw_state()
+            if not state_is_empty(track_state_t) then
+                state_sym = symbol(&track_state_t, "state")
+                if has_mixer_state then mixer_state_q = `([&float](&(@[state_sym]).mixer_slots[0])) end
+                if has_graph_state then graph_state_raw_q = `([&uint8](&(@[state_sym]).graph_state)) end
+            end
+            local ctx = {
+                diagnostics = {},
+                BS = buffer_size,
+                sample_rate = self.transport.sample_rate,
+                literals = self.mixer_literals,
+                literal_values = literal_values,
+                block_tick = 0,
                 block_sample = eval_tick_to_sample(self.tempo_map, 0),
-                param_bindings = self.mixer_param_bindings, param_meta = self.mixer_params,
-                mod_slots = L(), mod_routes = L(),
-                bufs_sym = bufs_sym, frames_sym = frames_sym,
-                init_slots_sym = init_slots_sym, block_slots_sym = block_slots_sym,
-                sample_slots_sym = sample_slots_sym, event_slots_sym = event_slots_sym,
-                voice_slots_sym = voice_slots_sym, state_sym = state_sym }
+                param_bindings = self.mixer_param_bindings,
+                param_meta = self.mixer_params,
+                mod_slots = L(),
+                mod_routes = L(),
+                bufs_sym = bufs_sym,
+                frames_sym = frames_sym,
+                init_slots_sym = init_slots_sym,
+                block_slots_sym = block_slots_sym,
+                sample_slots_sym = sample_slots_sym,
+                event_slots_sym = event_slots_sym,
+                voice_slots_sym = voice_slots_sym,
+                state_sym = mixer_state_q,
+            }
             local body = terralib.newlist()
             body:insert(quote
                 for i = 0, [int32](total_floats-1) do [bufs_sym][i] = 0.0f end
@@ -255,7 +339,6 @@ local K = types.Kernel
                 for i = 0, [int32](sample_count-1) do [sample_slots_sym][i] = 0.0f end
                 for i = 0, [int32](event_count-1) do [event_slots_sym][i] = 0.0f end
                 for i = 0, [int32](voice_count-1) do [voice_slots_sym][i] = 0.0f end
-                for i = 0, [int32](state_count-1) do [state_sym][i] = 0.0f end
             end)
             body:insert(quote [emit_runtime_ops({
                 init_ops = self.mixer_init_ops, block_ops = self.mixer_block_ops, block_pts = self.mixer_block_pts,
@@ -266,45 +349,109 @@ local K = types.Kernel
             local mix_units = {}; for i = 1, #self.mix_programs do mix_units[i] = self.mix_programs[i]:compile() end
             local output_units = {}; for i = 1, #self.output_programs do output_units[i] = self.output_programs[i]:compile() end
             if graph_fn then
-                body:insert(quote [graph_fn](&[graph_bufs_sym][0], [frames_sym]) end)
-                body:insert(quote var go = [int32](graph_out_offset); var wo = [int32](work_offset)
-                    for i = 0, [frames_sym] do [bufs_sym][wo+i] = [bufs_sym][wo+i] + [graph_bufs_sym][go+i] end end)
+                body:insert(quote [graph_fn](&[graph_bufs_sym][0], [frames_sym], [graph_state_raw_q]) end)
+                body:insert(quote
+                    var go = [int32](graph_out_offset)
+                    var wo = [int32](work_offset)
+                    for i = 0, [frames_sym] do [bufs_sym][wo+i] = [bufs_sym][wo+i] + [graph_bufs_sym][go+i] end
+                end)
             end
+            local mixer_state_raw_q = has_mixer_state and state_raw_sym or nil_raw_state()
             for i = 1, #clip_units do local fn = clip_units[i].fn
-                body:insert(quote [fn](&[bufs_sym][0],[frames_sym],&[init_slots_sym][0],&[block_slots_sym][0],&[sample_slots_sym][0],&[event_slots_sym][0],&[voice_slots_sym][0]) end) end
+                body:insert(quote [fn](&[bufs_sym][0], [frames_sym], & [init_slots_sym][0], & [block_slots_sym][0], & [sample_slots_sym][0], & [event_slots_sym][0], & [voice_slots_sym][0], [mixer_state_raw_q]) end) end
             for i = 1, #send_units do local fn = send_units[i].fn
-                body:insert(quote [fn](&[bufs_sym][0],[frames_sym],&[init_slots_sym][0],&[block_slots_sym][0],&[sample_slots_sym][0],&[event_slots_sym][0],&[voice_slots_sym][0]) end) end
+                body:insert(quote [fn](&[bufs_sym][0], [frames_sym], & [init_slots_sym][0], & [block_slots_sym][0], & [sample_slots_sym][0], & [event_slots_sym][0], & [voice_slots_sym][0], [mixer_state_raw_q]) end) end
             for i = 1, #mix_units do local fn = mix_units[i].fn
-                body:insert(quote [fn](&[bufs_sym][0],[frames_sym],&[init_slots_sym][0],&[block_slots_sym][0],&[sample_slots_sym][0],&[event_slots_sym][0],&[voice_slots_sym][0]) end) end
+                body:insert(quote [fn](&[bufs_sym][0], [frames_sym], & [init_slots_sym][0], & [block_slots_sym][0], & [sample_slots_sym][0], & [event_slots_sym][0], & [voice_slots_sym][0], [mixer_state_raw_q]) end) end
             for i = 1, #output_units do local fn = output_units[i].fn
-                body:insert(quote [fn](&[bufs_sym][0],[frames_sym],&[init_slots_sym][0],&[block_slots_sym][0],&[sample_slots_sym][0],&[event_slots_sym][0],&[voice_slots_sym][0]) end) end
-            body:insert(quote var lo = [int32](master_left_offset); var ro = [int32](master_right_offset)
-                for i = 0, [frames_sym] do [ol_sym][i] = [ol_sym][i] + [bufs_sym][lo+i]; [or_sym][i] = [or_sym][i] + [bufs_sym][ro+i] end end)
-            track_fn = terra([ol_sym],[or_sym],[frames_sym])
-                var [bufs_sym]; var [graph_bufs_sym]; var [init_slots_sym]; var [block_slots_sym]
-                var [sample_slots_sym]; var [event_slots_sym]; var [voice_slots_sym]; var [state_sym]
-                [body]
+                body:insert(quote [fn](&[bufs_sym][0], [frames_sym], & [init_slots_sym][0], & [block_slots_sym][0], & [sample_slots_sym][0], & [event_slots_sym][0], & [voice_slots_sym][0], [mixer_state_raw_q]) end) end
+            body:insert(quote
+                var lo = [int32](master_left_offset)
+                var ro = [int32](master_right_offset)
+                for i = 0, [frames_sym] do [ol_sym][i] = [ol_sym][i] + [bufs_sym][lo+i]; [or_sym][i] = [or_sym][i] + [bufs_sym][ro+i] end
+            end)
+            if state_sym then
+                track_fn = terra([ol_sym], [or_sym], [frames_sym], [state_raw_sym])
+                    var [bufs_sym]
+                    var [graph_bufs_sym]
+                    var [init_slots_sym]
+                    var [block_slots_sym]
+                    var [sample_slots_sym]
+                    var [event_slots_sym]
+                    var [voice_slots_sym]
+                    var [state_sym] = [&track_state_t]([state_raw_sym])
+                    [body]
+                end
+            else
+                track_fn = terra([ol_sym], [or_sym], [frames_sym], [state_raw_sym])
+                    var [bufs_sym]
+                    var [graph_bufs_sym]
+                    var [init_slots_sym]
+                    var [block_slots_sym]
+                    var [sample_slots_sym]
+                    var [event_slots_sym]
+                    var [voice_slots_sym]
+                    [body]
+                end
             end
-        else track_fn = terra(output_left: &float, output_right: &float, frames: int32) end end
-        return K.Unit(track_fn, make_state_type(self.total_state_slots))
+        else
+            track_fn = terra(output_left: &float, output_right: &float, frames: int32, state_raw: &uint8) end
+        end
+        return Unit(track_fn, track_state_t)
     end
 
     local function compile_project(self)
         local track_units = {}
-        for i = 1, #self.track_programs do track_units[i] = self.track_programs[i]:compile() end
+        local project_entries = terralib.newlist()
+        local track_fields = {}
+        for i = 1, #self.track_programs do
+            local tu = self.track_programs[i]:compile()
+            track_units[i] = tu
+            if not state_is_empty(tu.state_t) then
+                local field = "track_" .. tostring(i)
+                project_entries:insert({ field = field, type = tu.state_t })
+                track_fields[i] = field
+            end
+        end
+        local project_state_t = make_struct_type("ProjectState", project_entries)
         local render_fn
         if #track_units > 0 then
-            local ol = symbol(&float, "output_left"); local or_ = symbol(&float, "output_right"); local frames = symbol(int32, "frames")
+            local ol = symbol(&float, "output_left")
+            local or_ = symbol(&float, "output_right")
+            local frames = symbol(int32, "frames")
+            local state_raw = symbol(&uint8, "state_raw")
+            local state_sym = nil
+            if not state_is_empty(project_state_t) then state_sym = symbol(&project_state_t, "state") end
             local body = terralib.newlist()
             body:insert(quote for i = 0, [frames] do [ol][i] = 0.0f; [or_][i] = 0.0f end end)
-            for i = 1, #track_units do local fn = track_units[i].fn
-                body:insert(quote [fn]([ol], [or_], [frames]) end) end
-            render_fn = terra([ol], [or_], [frames]) [body] end
+            for i = 1, #track_units do
+                local fn = track_units[i].fn
+                local child_state_raw_q = nil_raw_state()
+                if track_fields[i] then child_state_raw_q = `([&uint8](&(@[state_sym]).[track_fields[i]])) end
+                body:insert(quote [fn]([ol], [or_], [frames], [child_state_raw_q]) end)
+            end
+            if state_sym then
+                render_fn = terra([ol], [or_], [frames], [state_raw])
+                    var [state_sym] = [&project_state_t]([state_raw])
+                    [body]
+                end
+            else
+                render_fn = terra([ol], [or_], [frames], [state_raw]) [body] end
+            end
         else
-            render_fn = terra(output_left: &float, output_right: &float, frames: int32)
-                for i = 0, frames do output_left[i] = 0.0f; output_right[i] = 0.0f end end
+            render_fn = terra(output_left: &float, output_right: &float, frames: int32, state_raw: &uint8)
+                for i = 0, frames do output_left[i] = 0.0f; output_right[i] = 0.0f end
+            end
         end
-        return K.Project(render_fn)
+        local init_fn
+        if state_is_empty(project_state_t) then
+            init_fn = terra(state_raw: &uint8) end
+        else
+            init_fn = terra(state_raw: &uint8)
+                C.memset(state_raw, 0, [uint64](terralib.sizeof(project_state_t)))
+            end
+        end
+        return K.Project(render_fn, project_state_t, init_fn)
     end
 
     return {

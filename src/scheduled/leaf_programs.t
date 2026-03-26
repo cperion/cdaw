@@ -11,6 +11,7 @@ local compile_output_job = require("src/scheduled/compiler/output_job")
 
 return function(types)
 local K = types.Kernel
+    local Unit = types.Unit
     local function build_literal_values(literals)
         local values = {}
         for i = 1, #(literals or {}) do values[i] = literals[i].value end
@@ -25,6 +26,7 @@ local K = types.Kernel
         local sample_slots_sym = symbol(&float, "sample_slots")
         local event_slots_sym = symbol(&float, "event_slots")
         local voice_slots_sym = symbol(&float, "voice_slots")
+        local state_raw_sym = symbol(&uint8, "state_raw")
         return {
             diagnostics = {},
             BS = (self.transport and self.transport.buffer_size) or 512,
@@ -38,6 +40,8 @@ local K = types.Kernel
             sample_slots_sym = sample_slots_sym,
             event_slots_sym = event_slots_sym,
             voice_slots_sym = voice_slots_sym,
+            state_raw_sym = state_raw_sym,
+            state_sym = `([&float]([state_raw_sym])),
         }
     end
 
@@ -46,10 +50,10 @@ local K = types.Kernel
         if extra_ctx then for k, v in pairs(extra_ctx(self, ctx)) do ctx[k] = v end end
         local body_q = compile_job_fn(self[job_field], ctx)
         local fn = terra([ctx.bufs_sym], [ctx.frames_sym], [ctx.init_slots_sym], [ctx.block_slots_sym],
-                         [ctx.sample_slots_sym], [ctx.event_slots_sym], [ctx.voice_slots_sym])
+                         [ctx.sample_slots_sym], [ctx.event_slots_sym], [ctx.voice_slots_sym], [ctx.state_raw_sym])
             [body_q]
         end
-        return K.Unit(fn, tuple())
+        return Unit(fn, tuple())
     end
 
     local function node_extra(self, ctx)

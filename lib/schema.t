@@ -20,6 +20,12 @@ local builtin_types = {
     ["function"] = true,
 }
 
+local schema_intrinsic_types = {
+    ["Unit"] = true,
+}
+
+local intrinsic_unit_module = "__SchemaBuiltin"
+
 local function parse_name(lex)
     return lex:expect(lex.name).value
 end
@@ -40,8 +46,12 @@ local function expect_arrow(lex)
     lex:expect(">")
 end
 
+local function matches_name_value(lex, value)
+    return lex:matches(lex.name) and lex:cur().value == value
+end
+
 local function next_name_value(lex, value)
-    if lex:matches(lex.name) and lex:cur().value == value then
+    if matches_name_value(lex, value) then
         lex:next()
         return true
     end
@@ -288,6 +298,7 @@ local function parse_record(lex, phase)
     lex:expect("record")
     local decl = {
         kind = "record",
+        surface_kind = "record",
         phase = phase.name,
         line = line,
         doc = doc,
@@ -295,6 +306,9 @@ local function parse_record(lex, phase)
         fields = {},
         unique = false,
     }
+    if schema_intrinsic_types[decl.name] then
+        lex:error(("type name '%s' is reserved by schema.t"):format(decl.name))
+    end
     if phase.type_names[decl.name] then
         lex:error(("duplicate type '%s' in phase '%s'"):format(decl.name, phase.name))
     end
@@ -326,6 +340,9 @@ local function parse_enum(lex, phase)
         name = parse_name(lex),
         variants = {},
     }
+    if schema_intrinsic_types[decl.name] then
+        lex:error(("type name '%s' is reserved by schema.t"):format(decl.name))
+    end
     if phase.type_names[decl.name] then
         lex:error(("duplicate type '%s' in phase '%s'"):format(decl.name, phase.name))
     end
@@ -382,6 +399,9 @@ local function parse_flags(lex, phase)
         name = parse_name(lex),
         values = {},
     }
+    if schema_intrinsic_types[decl.name] then
+        lex:error(("type name '%s' is reserved by schema.t"):format(decl.name))
+    end
     if phase.type_names[decl.name] then
         lex:error(("duplicate type '%s' in phase '%s'"):format(decl.name, phase.name))
     end
@@ -609,7 +629,7 @@ end
 
 local function parse_product(lex, phase)
     -- product is like record but:
-    --   1. must have fn: TerraFunc/TerraQuote and state_t: TerraType fields
+    --   1. must have fn and state_t fields
     --   2. always unique (compile products are identity-comparable for memoize)
     --   3. may have additional fields
     local line = current_line(lex)
@@ -617,13 +637,19 @@ local function parse_product(lex, phase)
     lex:expect("product")
     local decl = {
         kind = "record",
+        surface_kind = "product",
+        phase = phase.name,
         line = line,
         doc = doc,
         name = parse_name(lex),
         fields = {},
         unique = true,
         is_product = true,
+        is_unit = false,
     }
+    if schema_intrinsic_types[decl.name] then
+        lex:error(("type name '%s' is reserved by schema.t"):format(decl.name))
+    end
     if phase.type_names[decl.name] then
         lex:error(("duplicate type name '%s' in phase '%s'"):format(decl.name, phase.name))
     end
@@ -654,6 +680,103 @@ local function parse_product(lex, phase)
     return decl
 end
 
+local function parse_unit(lex, phase)
+    -- unit is the canonical compile product for this architecture:
+    --   1. auto-declares fn and state_t
+    --   2. always unique
+    --   3. may declare additional fields (e.g. init_fn)
+    --   4. may override fn type via: unit Name using TerraQuote
+    local line = current_line(lex)
+    local doc = attached_doc_comment(lex)
+    if not next_name_value(lex, "unit") then
+        lex:error("expected 'unit'")
+    end
+    local decl = {
+        kind = "record",
+        surface_kind = "unit",
+        phase = phase.name,
+        line = line,
+        doc = doc,
+        name = parse_name(lex),
+        fields = {},
+        unique = true,
+        is_product = true,
+        is_unit = true,
+        unit_fn_type = "TerraFunc",
+        unit_extra_fields = {},
+    }
+    if next_name_value(lex, "using") then
+        decl.unit_fn_type = parse_dotted_name(lex)
+    end
+    if schema_intrinsic_types[decl.name] then
+        lex:error(("type name '%s' is reserved by schema.t; use the builtin intrinsic directly"):format(decl.name))
+    end
+    if phase.type_names[decl.name] then
+        lex:error(("duplicate type name '%s' in phase '%s'"):format(decl.name, phase.name))
+    end
+    phase.type_names[decl.name] = true
+
+    push(decl.fields, {
+        line = line,
+        name = "fn",
+        type = decl.unit_fn_type,
+    })
+    push(decl.fields, {
+        line = line,
+        name = "state_t",
+        type = "TerraType",
+    })
+
+    while not lex:matches("end") do
+        if next_name_value(lex, "doc") then
+            decl.doc = parse_doc_value(lex)
+        else
+            local field = parse_field(lex)
+            if field.name == "fn" or field.name == "state_t" then
+                lex:error(("unit '%s' auto-declares '%s'; do not redeclare canonical unit fields"):format(decl.name, field.name))
+            end
+            push(decl.fields, field)
+            push(decl.unit_extra_fields, field)
+        end
+    end
+    lex:expect("end")
+
+    return decl
+end
+
+local function parse_pipeline(lex)
+    local line = current_line(lex)
+    if not next_name_value(lex, "pipeline") then
+        lex:error("expected 'pipeline'")
+    end
+    local stages = { parse_dotted_name(lex) }
+    while lex:nextif("->") or (lex:nextif("-") and lex:expect(">") and true) do
+        push(stages, parse_dotted_name(lex))
+    end
+    if #stages < 2 then
+        lex:error("pipeline must have at least 2 stages")
+    end
+    return { kind = "pipeline", line = line, stages = stages }
+end
+
+local function parse_use(lex, schema)
+    local line = current_line(lex)
+    if not next_name_value(lex, "use") then
+        lex:error("expected 'use'")
+    end
+    local u = {
+        line = line,
+        name = parse_name(lex),
+    }
+    if schema.use_names[u.name] then
+        lex:error(("duplicate use '%s'"):format(u.name))
+    end
+    schema.use_names[u.name] = true
+    lex:expect("=")
+    u.expr = lex:luaexpr()
+    return u
+end
+
 local function parse_phase(lex, schema)
     local line = current_line(lex)
     local doc = attached_doc_comment(lex)
@@ -673,17 +796,6 @@ local function parse_phase(lex, schema)
     end
     schema.phase_names[phase.name] = true
 
-    -- Optional transition: to TargetPhase via method_name
-    if lex:nextif("to") then
-        phase.transition = {
-            target = parse_name(lex),
-            method = nil,
-        }
-        if lex:nextif("via") then
-            phase.transition.method = parse_name(lex)
-        end
-    end
-
     while not lex:matches("end") do
         if next_name_value(lex, "doc") then
             phase.doc = parse_doc_value(lex)
@@ -697,8 +809,10 @@ local function parse_phase(lex, schema)
             push(phase.decls, parse_methods(lex, phase))
         elseif lex:matches("product") then
             push(phase.decls, parse_product(lex, phase))
+        elseif matches_name_value(lex, "unit") then
+            push(phase.decls, parse_unit(lex, phase))
         else
-            lex:error(("expected doc, record, enum, flags, methods, product, or end in phase '%s'"):format(phase.name))
+            lex:error(("expected doc, record, enum, flags, methods, product, unit, or end in phase '%s'"):format(phase.name))
         end
     end
     lex:expect("end")
@@ -732,10 +846,13 @@ local function parse_schema(lex)
         doc = doc,
         name = parse_name(lex),
         externs = {},
+        uses = {},
         phases = {},
         hooks = {},
+        pipelines = {},
         phase_names = {},
         extern_names = {},
+        use_names = {},
     }
 
     while not lex:matches("end") do
@@ -743,21 +860,29 @@ local function parse_schema(lex)
             schema.doc = parse_doc_value(lex)
         elseif lex:matches("extern") then
             push(schema.externs, parse_extern(lex, schema))
+        elseif matches_name_value(lex, "use") then
+            push(schema.uses, parse_use(lex, schema))
+        elseif matches_name_value(lex, "pipeline") then
+            push(schema.pipelines, parse_pipeline(lex))
         elseif lex:matches("phase") then
             push(schema.phases, parse_phase(lex, schema))
         elseif lex:matches("hooks") then
             push(schema.hooks, parse_hooks(lex))
         else
-            lex:error("expected doc, extern, phase, hooks, or end inside schema")
+            lex:error("expected doc, extern, use, pipeline, phase, hooks, or end inside schema")
         end
     end
     lex:expect("end")
     schema.phase_names = nil
     schema.extern_names = nil
+    schema.use_names = nil
+    -- Backward compat: schema.pipeline = first pipeline (or nil)
+    schema.pipeline = schema.pipelines[1]
     return schema
 end
 
 local qualify_type_name
+local is_unit_type
 
 local function emit_field(field)
     local ty = field.type
@@ -815,8 +940,36 @@ local function emit_flags(decl, indent)
     return lines
 end
 
+local function schema_uses_intrinsic_unit(schema)
+    for _, phase in ipairs(schema.phases) do
+        for _, decl in ipairs(phase.decls) do
+            if decl.kind == "methods" then
+                for _, item in ipairs(decl.items) do
+                    if item.return_type == "Unit" then
+                        return true
+                    end
+                    for _, arg in ipairs(item.args or {}) do
+                        if arg.type == "Unit" then
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
 local function emit_asdl(schema)
     local lines = {}
+    if schema_uses_intrinsic_unit(schema) then
+        push(lines, ("module %s {"):format(intrinsic_unit_module))
+        push(lines, "    Unit = (TerraFunc fn, TerraType state_t) unique")
+        push(lines, "}")
+        if #schema.phases > 0 then
+            push(lines, "")
+        end
+    end
     for pindex, phase in ipairs(schema.phases) do
         push(lines, ("module %s {"):format(phase.name))
         for dindex, decl in ipairs(phase.decls) do
@@ -897,13 +1050,19 @@ local function emit_surface(schema)
 
         for dindex, decl in ipairs(phase.decls) do
             if decl.kind == "record" then
-                push(lines, "        record " .. decl.name)
+                local header_kind = decl.surface_kind or "record"
+                local header = "        " .. header_kind .. " " .. decl.name
+                if decl.is_unit and decl.unit_fn_type and decl.unit_fn_type ~= "TerraFunc" then
+                    header = header .. " using " .. decl.unit_fn_type
+                end
+                push(lines, header)
                 emit_doc_line(lines, "            ", decl.doc)
-                for _, field in ipairs(decl.fields) do
+                local surface_fields = decl.is_unit and (decl.unit_extra_fields or {}) or decl.fields
+                for _, field in ipairs(surface_fields) do
                     push(lines, "            " .. emit_surface_field(field))
                     emit_doc_line(lines, "                ", field.doc)
                 end
-                if decl.unique then
+                if decl.unique and not decl.is_product then
                     push(lines, "            unique")
                 end
                 push(lines, "        end")
@@ -1060,7 +1219,8 @@ local function emit_markdown(schema_obj, schema_ast)
         for _, decl in ipairs(phase.decls) do
             if decl.kind == "record" then
                 markdown_anchor(lines, "type-" .. slugify(phase.name .. "." .. decl.name))
-                push(lines, "### Record `" .. phase.name .. "." .. decl.name .. "`")
+                local heading_kind = decl.is_unit and "Unit" or (decl.is_product and "Product" or "Record")
+                push(lines, "### " .. heading_kind .. " `" .. phase.name .. "." .. decl.name .. "`")
                 push(lines, "")
                 markdown_text(lines, decl.doc)
                 if decl.line then
@@ -1201,7 +1361,7 @@ qualify_type_name = function(type_name, phase_name, extern_lookup)
     if type_name:find("%.") then
         return type_name
     end
-    if builtin_types[type_name] or extern_lookup[type_name] then
+    if builtin_types[type_name] or extern_lookup[type_name] or schema_intrinsic_types[type_name] then
         return type_name
     end
     return phase_name .. "." .. type_name
@@ -1295,6 +1455,30 @@ local function build_type_index(schema)
             end
         end
     end
+
+    index["Unit"] = {
+        fqname = "Unit",
+        phase = intrinsic_unit_module,
+        phase_index = math.huge,
+        kind = "record",
+        decl = {
+            kind = "record",
+            surface_kind = "unit",
+            phase = intrinsic_unit_module,
+            name = "Unit",
+            fields = {
+                { name = "fn", type = "TerraFunc" },
+                { name = "state_t", type = "TerraType" },
+            },
+            unique = true,
+            is_product = true,
+            is_unit = true,
+            unit_fn_type = "TerraFunc",
+            unit_extra_fields = {},
+            intrinsic = true,
+        },
+        intrinsic = true,
+    }
 
     return index, phase_order
 end
@@ -1556,29 +1740,147 @@ local function validate_schema(schema)
         end
     end
 
-    -- Validate phase transitions: if phase declares -> Target via method_name,
-    -- verify all cross-phase methods from this phase use that method name,
-    -- and the target phase exists.
-    for _, phase in ipairs(schema.phases) do
-        if phase.transition then
-            local target_found = false
+    -- ── Pipeline validation (compilation tree) ──
+    -- Multiple pipelines form a compilation tree:
+    --   - Each pipeline is a branch from a source phase to a terminal
+    --   - Branches may share prefixes (e.g. both start at Editor)
+    --   - The last stage of each branch is its terminal
+    --   - A stage may be a cross-schema reference (e.g. TerraUI.Decl)
+    --     meaning "this branch continues into another schema's pipeline"
+    --   - Local stages must be declared phases
+    --   - Terminal transitions (into the last local stage) must return unit types
+    --   - Transition verbs are discovered per edge (consistency enforced)
+    --   - No forward skipping within a branch
+    --   - Every local edge must have at least one transition method
+
+    -- Merge all pipelines into a unified tree structure
+    local all_edges = {}         -- edge_key -> { src, target, branch_index, is_terminal }
+    local pipeline_phases = {}   -- phase_name -> true (all local phases in any pipeline)
+    local next_phase_map = {}    -- phase_name -> target_name (for the branch it belongs to)
+    local terminal_phases = {}   -- phase_name -> true
+    local bridge_exits = {}      -- phase_name -> "Schema.Phase" (cross-schema exit)
+    local edge_verbs = {}
+    local edge_methods = {}
+
+    for bi, pip in ipairs(schema.pipelines or {}) do
+        -- Find the last local stage and detect cross-schema exit
+        local local_stages = {}
+        local exit_target = nil
+        for _, stage in ipairs(pip.stages) do
+            if stage:find("%.") then
+                -- Cross-schema reference — this is the exit point
+                exit_target = stage
+                break
+            end
+            push(local_stages, stage)
+        end
+
+        if #local_stages == 0 then
+            return ("pipeline %d has no local stages"):format(bi)
+        end
+
+        -- Validate local stages exist as declared phases
+        for _, stage in ipairs(local_stages) do
+            local found = false
             for _, p in ipairs(schema.phases) do
-                if p.name == phase.transition.target then target_found = true; break end
+                if p.name == stage then found = true; break end
             end
-            if not target_found then
-                return ("phase '%s' declares transition to unknown phase '%s'"):format(
-                    phase.name, phase.transition.target)
+            if not found then
+                return ("pipeline stage '%s' is not a declared phase"):format(stage)
             end
-            if phase.transition.method then
-                for _, decl in ipairs(phase.decls) do
-                    if decl.kind == "methods" then
-                        for _, item in ipairs(decl.items) do
-                            local return_type = resolve_type_ref(item.return_type, phase.name, extern_lookup)
-                            local return_info = type_index[return_type]
-                            if return_info and return_info.phase == phase.transition.target then
-                                if item.name ~= phase.transition.method then
-                                    return ("method '%s:%s' in phase '%s' returns '%s' (phase '%s') but the declared transition method is '%s'"):format(
-                                        item.receiver, item.name, phase.name, return_type, phase.transition.target, phase.transition.method)
+            pipeline_phases[stage] = true
+        end
+
+        -- Mark terminal
+        local terminal = local_stages[#local_stages]
+        if not exit_target then
+            terminal_phases[terminal] = true
+        else
+            bridge_exits[terminal] = exit_target
+        end
+
+        -- Build edges for this branch
+        for i = 1, #local_stages - 1 do
+            local src, tgt = local_stages[i], local_stages[i + 1]
+            local edge_key = src .. "->" .. tgt
+            local is_term = (i == #local_stages - 1) and not exit_target
+            if not all_edges[edge_key] then
+                all_edges[edge_key] = { src = src, target = tgt, is_terminal = is_term }
+            end
+            if is_term then
+                all_edges[edge_key].is_terminal = true
+            end
+            -- A phase may branch to multiple targets (one per pipeline branch)
+            if not next_phase_map[src] then
+                next_phase_map[src] = { tgt }
+            else
+                local found = false
+                for _, existing in ipairs(next_phase_map[src]) do
+                    if existing == tgt then found = true; break end
+                end
+                if not found then
+                    push(next_phase_map[src], tgt)
+                end
+            end
+        end
+
+        -- If there's a cross-schema exit, the last local stage transitions to the extern
+        if exit_target then
+            local last_local = local_stages[#local_stages]
+            local edge_key = last_local .. "->" .. exit_target
+            all_edges[edge_key] = { src = last_local, target = exit_target, is_bridge = true }
+        end
+    end
+
+    -- Build a lookup: phase -> set of valid next phases
+    local valid_targets = {}
+    for src, targets in pairs(next_phase_map) do
+        local set = {}
+        for _, t in ipairs(targets) do set[t] = true end
+        valid_targets[src] = set
+    end
+
+    -- Discover and validate transition verbs for local edges
+    for _, phase in ipairs(schema.phases) do
+        if pipeline_phases[phase.name] and valid_targets[phase.name] then
+            for _, decl in ipairs(phase.decls) do
+                if decl.kind == "methods" then
+                    for _, item in ipairs(decl.items) do
+                        local return_type = resolve_type_ref(item.return_type, phase.name, extern_lookup)
+                        local return_info = type_index[return_type]
+
+                        local crosses_to = nil
+                        if return_type == "Unit" then
+                            for tp in pairs(terminal_phases) do
+                                if valid_targets[phase.name][tp] then
+                                    crosses_to = tp
+                                end
+                            end
+                        elseif return_info and pipeline_phases[return_info.phase] then
+                            crosses_to = return_info.phase
+                        end
+
+                        if crosses_to and crosses_to ~= phase.name then
+                            if not valid_targets[phase.name][crosses_to] then
+                                local allowed = {}
+                                for t in pairs(valid_targets[phase.name]) do push(allowed, t) end
+                                table.sort(allowed)
+                                return ("method '%s:%s' in phase '%s' returns type from '%s', but pipeline allows transitions to: %s (no skipping)"):format(
+                                    item.receiver, item.name, phase.name, crosses_to, table.concat(allowed, ", "))
+                            end
+
+                            local edge_key = phase.name .. "->" .. crosses_to
+                            if edge_verbs[edge_key] and edge_verbs[edge_key] ~= item.name then
+                                return ("inconsistent transition verb for %s: found both '%s' and '%s'"):format(
+                                    edge_key, edge_verbs[edge_key], item.name)
+                            end
+                            edge_verbs[edge_key] = item.name
+                            edge_methods[edge_key] = (edge_methods[edge_key] or 0) + 1
+
+                            if terminal_phases[crosses_to] then
+                                if not is_unit_type(return_type, type_index) then
+                                    return ("terminal transition method '%s:%s' in phase '%s' must return the builtin Unit or a schema unit type; '%s' is not a unit"):format(
+                                        item.receiver, item.name, phase.name, return_type)
                                 end
                             end
                         end
@@ -1586,9 +1888,55 @@ local function validate_schema(schema)
                 end
             end
         end
+    end
 
-        -- Product types are validated at parse time (fn + state_t fields required).
-        -- No additional validation needed here.
+    -- Validate every local edge has at least one transition method.
+    -- Every arrow in the pipeline is a method boundary. No exceptions.
+    for edge_key, edge in pairs(all_edges) do
+        if not edge.is_bridge and not edge_methods[edge_key] then
+            return ("pipeline edge %s has no transition methods"):format(edge_key)
+        end
+    end
+
+    -- Derive root: the common first stage across all branches
+    local root_phase = nil
+    if #(schema.pipelines or {}) > 0 then
+        root_phase = schema.pipelines[1].stages[1]
+        for _, pip in ipairs(schema.pipelines) do
+            if pip.stages[1] ~= root_phase then
+                root_phase = nil
+                break
+            end
+        end
+    end
+
+    -- Validate cross-schema bridges if schemas are available
+    -- (uses are resolved later in build_schema_object; parse-time validation
+    -- only checks that the dotted name is syntactically valid)
+
+    -- Store derived pipeline tree
+    schema._pipeline = {
+        pipelines = schema.pipelines,
+        root = root_phase,
+        phases = pipeline_phases,
+        terminal_phases = terminal_phases,
+        bridge_exits = bridge_exits,
+        next_phase = next_phase_map,
+        verbs = edge_verbs,
+        edges = all_edges,
+    }
+
+    -- Backfill phase.transition for downstream compatibility (uses first target)
+    for _, phase in ipairs(schema.phases) do
+        local targets = next_phase_map[phase.name]
+        if targets and #targets > 0 then
+            local target = targets[1]
+            local edge_key = phase.name .. "->" .. target
+            phase.transition = {
+                target = target,
+                method = edge_verbs[edge_key],
+            }
+        end
     end
 
     return nil, {
@@ -1720,23 +2068,31 @@ local function is_canonical_compile_product_type(type_name, schema_ast, validati
     end
 
     local decl = type_info.decl
-    local fields = decl.fields or {}
-    if #fields ~= 2 then
-        return false
+    if decl.is_unit then
+        return true
     end
 
-    local f1, f2 = fields[1], fields[2]
-    if f1.name ~= "fn" or f2.name ~= "state_t" then
+    local fields = decl.fields or {}
+    local has_fn, has_state = nil, nil
+    for _, field in ipairs(fields) do
+        if field.name == "fn" then has_fn = field end
+        if field.name == "state_t" then has_state = field end
+    end
+    if not has_fn or not has_state then
         return false
     end
-    if f1.mod ~= nil or f2.mod ~= nil then
+    if has_fn.mod ~= nil or has_state.mod ~= nil then
         return false
     end
 
     local extern_lookup = validation_info.extern_lookup
-    local t1 = qualify_type_name(f1.type, type_info.phase, extern_lookup)
-    local t2 = qualify_type_name(f2.type, type_info.phase, extern_lookup)
-    return t1 == "TerraFunc" and t2 == "TerraType"
+    local t2 = qualify_type_name(has_state.type, type_info.phase, extern_lookup)
+    return t2 == "TerraType"
+end
+
+is_unit_type = function(type_name, type_index)
+    local type_info = type_index[type_name]
+    return type_info and type_info.kind == "record" and type_info.decl and type_info.decl.is_unit or false
 end
 
 local function annotate_method_semantics(schema_obj, schema_ast, validation_info)
@@ -2151,6 +2507,11 @@ local function runtime_type_matches(value, type_name, schema_obj, validation_inf
         return extern_checker(value)
     end
 
+    if schema_intrinsic_types[type_name] then
+        local class = schema_obj.types[type_name]
+        return class ~= nil and class:isclassof(value)
+    end
+
     local type_info = validation_info.type_index[type_name]
     if not type_info then
         return false
@@ -2345,6 +2706,15 @@ end
 local function build_schema_object(schema_ast, env, validation_info)
     local ctx = asdl.NewContext()
     local extern_values = {}
+    local used_schemas = {}
+
+    for _, u in ipairs(schema_ast.uses or {}) do
+        local imported = u.expr(env)
+        if type(imported) ~= "table" or not imported.types then
+            error(("use '%s' must evaluate to a schema object with .types, got %s"):format(u.name, type(imported)))
+        end
+        used_schemas[u.name] = imported
+    end
 
     for _, ext in ipairs(schema_ast.externs) do
         local checker = ext.expr(env)
@@ -2357,6 +2727,9 @@ local function build_schema_object(schema_ast, env, validation_info)
 
     local asdl_text = emit_asdl(schema_ast)
     ctx:Define(asdl_text)
+    if ctx[intrinsic_unit_module] and ctx[intrinsic_unit_module].Unit then
+        ctx.Unit = ctx[intrinsic_unit_module].Unit
+    end
 
     local phases = {}
     for _, phase in ipairs(schema_ast.phases) do
@@ -2374,8 +2747,10 @@ local function build_schema_object(schema_ast, env, validation_info)
                 products[phase.name .. "." .. decl.name] = {
                     type_name = decl.name,
                     phase = phase.name,
+                    kind = decl.is_unit and "unit" or "product",
                     fn_field = "fn",
                     state_field = "state_t",
+                    fn_type = decl.is_unit and decl.unit_fn_type or nil,
                 }
             end
         end
@@ -2390,7 +2765,9 @@ local function build_schema_object(schema_ast, env, validation_info)
         methods = collect_methods(schema_ast),
         hooks = collect_hooks(schema_ast),
         externs = extern_values,
+        used_schemas = used_schemas,
         transitions = transitions,
+        pipeline = schema_ast._pipeline,
         products = products,
         asdl = asdl_text,
         surface = emit_surface(schema_ast),
@@ -2419,6 +2796,24 @@ local function build_schema_object(schema_ast, env, validation_info)
         hooks = schema_obj.tests.hooks,
     }
 
+    -- Validate cross-schema bridges
+    if schema_ast._pipeline and schema_ast._pipeline.bridge_exits then
+        for src_phase, target_ref in pairs(schema_ast._pipeline.bridge_exits) do
+            local schema_name, phase_name = target_ref:match("^([^.]+)%.(.+)$")
+            if not schema_name then
+                error(("bridge exit '%s' from phase '%s' is not a valid Schema.Phase reference"):format(target_ref, src_phase))
+            end
+            local target_schema = used_schemas[schema_name]
+            if target_schema then
+                local target_types = target_schema.types
+                if not target_types[phase_name] then
+                    error(("bridge exit '%s' from phase '%s': phase '%s' not found in schema '%s'"):format(
+                        target_ref, src_phase, phase_name, schema_name))
+                end
+            end
+        end
+    end
+
     return setmetatable(schema_obj, {
         __tostring = function(self)
             return ("Schema(%s)"):format(self.name)
@@ -2442,7 +2837,7 @@ end
 local schema_lang = {
     name = "schema",
     entrypoints = { "schema" },
-    keywords = { "extern", "phase", "record", "enum", "flags", "methods", "hooks", "unique", "where", "product", "via", "to" },
+    keywords = { "extern", "phase", "record", "enum", "flags", "methods", "hooks", "unique", "where", "product" },
 }
 
 function schema_lang:expression(lex)

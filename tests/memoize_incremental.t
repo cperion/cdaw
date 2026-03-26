@@ -308,16 +308,16 @@ end
 print("5. Session undo restores original hot path and leaf units")
 do
     local project = make_project(64)
-    local s = session.new(project):compile()
+    local s = session.new(project)
     local before = snapshot(s.project)
-    local before_render = ptr(s.render_fn)
+    local before_render = ptr(s:render_fn())
 
     s:set_track_volume(1, 0.4)
     local edited = snapshot(s.project)
 
     s:undo()
     local undone = snapshot(s.project)
-    local undone_render = ptr(s.render_fn)
+    local undone_render = ptr(s:render_fn())
 
     check(s.project == project, "undo restored original project object")
     check(before.render_ptr == undone.render_ptr, "undo restored project render ptr")
@@ -339,15 +339,15 @@ end
 print("6. Session redo restores edited hot path and leaf units")
 do
     local project = make_project(64)
-    local s = session.new(project):compile()
+    local s = session.new(project)
     s:set_track_volume(1, 0.4)
     local edited = snapshot(s.project)
-    local edited_render = ptr(s.render_fn)
+    local edited_render = ptr(s:render_fn())
 
     s:undo()
     s:redo()
     local redone = snapshot(s.project)
-    local redone_render = ptr(s.render_fn)
+    local redone_render = ptr(s:render_fn())
 
     check(redone.render_ptr == edited.render_ptr, "redo restored project render ptr")
     check(redone_render == edited_render, "redo restored live session render ptr")
@@ -367,14 +367,14 @@ end
 print("7. Same-value session edit is a no-op")
 do
     local project = make_project(64)
-    local s = session.new(project):compile()
+    local s = session.new(project)
     local before_project = s.project
-    local before_render = ptr(s.render_fn)
+    local before_render = ptr(s:render_fn())
 
     s:set_track_volume(1, 0.8)
 
     check(s.project == before_project, "same-value edit preserved project identity")
-    check(ptr(s.render_fn) == before_render, "same-value edit preserved render fn ptr")
+    check(ptr(s:render_fn()) == before_render, "same-value edit preserved render fn ptr")
     print("  PASS")
 end
 

@@ -1,12 +1,11 @@
 -- app/session.t
--- DAW session: owns Editor state, compilation pipeline, and audio output.
+-- DAW session: owns Editor state, lazy memoized pipeline, and audio output.
 --
 -- Usage:
 --   local session = require("app/session")
 --   local s = session.new(editor_project)
---   s:compile()    -- run full pipeline
 --   s:play()       -- start audio
---   s:set_param(owner_id, param_id, value) -- edit + recompile
+--   s:set_param(owner_id, param_id, value) -- edit; audio hot-swap falls out naturally
 --   s:stop()
 --   s:close()
 
@@ -296,25 +295,30 @@ function M.new(editor_project, opts)
         _redo_stack = {},
     }
 
-    -- ── Render function: lazy pipeline, fully memoized ──
+    -- ── Compiled kernel: lazy pipeline, fully memoized ──
     -- No explicit compile step. Each phase memoizes on its input.
     -- Unchanged subtrees are instant cache hits at every level.
-    function s:render_fn()
+    function s:kernel()
         return self.project
             :lower()
             :resolve(TICKS_PER_BEAT)
             :classify()
             :schedule()
             :compile()
-            :entry_fn()
+    end
+
+    -- Convenience accessor for code that only wants the entry function.
+    function s:render_fn()
+        return self:kernel():entry_fn()
     end
 
     -- ── Audio control ──
     function s:open_audio()
         self.audio = audio.open(sample_rate, buffer_size)
-        -- One thunk, set once. The audio loop resolves it each push.
-        -- Mutations change self.project; render_fn() picks it up via memoize.
-        self.audio:set_render_thunk(function() return self:render_fn() end)
+        -- Publish the current kernel once, then leave a lazy source installed.
+        -- The audio backend republishes only when the compiled kernel changes.
+        self.audio:set_kernel(self:kernel())
+        self.audio:set_kernel_thunk(function() return self:kernel() end)
         return self
     end
 

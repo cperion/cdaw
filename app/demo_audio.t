@@ -34,13 +34,13 @@ local function make_project(freq, gain, volume)
                 D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-                    10, "Osc", D.Authored.SineOsc(),
+                    10, "Osc", D.Authored.SineOsc,
                     L{D.Editor.ParamValue(0, "freq", 440, 20, 20000,
                         D.Editor.StaticValue(freq),
                         D.Editor.Replace, D.Editor.NoSmoothing)},
                     L(), nil, nil, nil, true, nil)),
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-                    11, "Gain", D.Authored.GainNode(),
+                    11, "Gain", D.Authored.GainNode,
                     L{D.Editor.ParamValue(0, "gain", 1, 0, 4,
                         D.Editor.StaticValue(gain),
                         D.Editor.Replace, D.Editor.NoSmoothing)},

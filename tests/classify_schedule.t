@@ -4,6 +4,7 @@
 local DAW = require("daw")
 local D = DAW.types
 local List = require("terralist")
+local KS = require("tests/kernel_support")
 local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 local TICKS_PER_BEAT = 960
 
@@ -110,7 +111,8 @@ do
     local kernel = project:lower():resolve(TICKS_PER_BEAT):classify():schedule():compile()
     local outL = terralib.new(float[64])
     local outR = terralib.new(float[64])
-    kernel:entry_fn()(outL, outR, 64)
+    local state_raw = KS.alloc_state(kernel)
+    kernel:entry_fn()(outL, outR, 64, state_raw)
     check(math.abs(outL[0]) > 0.01, "non-zero output")
     check(approx(outL[0], outR[0], 0.001), "equal L/R")
     print("  PASS")

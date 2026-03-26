@@ -4,6 +4,7 @@
 local DAW = require("daw")
 local D = DAW.types
 local List = require("terralist")
+local KS = require("tests/kernel_support")
 local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
 local pass, fail = 0, 0
@@ -36,7 +37,8 @@ do
     if entry then
         local out_l = terralib.new(float[64])
         local out_r = terralib.new(float[64])
-        entry(out_l, out_r, 64)
+        local state_raw = KS.alloc_state(k)
+        entry(out_l, out_r, 64, state_raw)
         -- Empty graph should still compile to a valid silent entry.
         check(approx(out_l[0], 0.0), "render output = 0.0 silence, got " .. out_l[0])
     end

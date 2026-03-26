@@ -159,16 +159,17 @@ follow the exact same pattern:
 This should be a shared helper that takes the compiler function and self,
 not 6 copies of the same 60-line template.
 
-#### 17. `state_t` is always `tuple()` — no real state isolation
-Every `Kernel.Unit` returns `tuple()` as `state_t`. The whole point of
-`{ fn, state_t }` is that the function owns its state ABI. Currently there
-is no state isolation — all state is stack-allocated inside the function.
-This works for the current simple DSP but breaks the architectural promise.
+#### 17. `state_t` still needs deeper application at leaf granularity
+Historical audit note: at the time of this review, every `Kernel.Unit`
+returned `tuple()` as `state_t`. That meant the function did not yet own a
+real state ABI and all runtime state effectively lived in local scratch
+arrays inside the generated function.
 
-When real stateful nodes are added (delay lines, reverb tails, envelope
-generators), `state_t` needs to be a real struct, and parent programs
-need to compose child state types. This is the most important
-architectural gap to close.
+This is being corrected by moving toward canonical `{ fn, state_t }`
+products throughout the runtime. The remaining architectural gap is at
+leaf granularity: stateful leaf units should return real `state_t`s of
+their own, and parent programs should compose those child state types
+structurally. The end state is: state is compiled, not managed.
 
 ### Important: should fix during rewrite
 

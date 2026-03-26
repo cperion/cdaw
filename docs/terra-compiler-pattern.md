@@ -229,17 +229,30 @@ This also applies to context objects. A context object passed through the tree i
 
 **Why `{ fn, state_t }` and not just `fn`:** The state type must be as granular as the function. If a level returns only `fn`, the function must take a pointer to some external state struct — and that struct's layout can change when OTHER parts of the project change, invalidating the cached function silently. Returning `{ fn, state_t }` means the function owns its ABI. The parent composes child `state_t`s into its own struct and passes pointers to each child. A cache hit on a child is memory-safe because the child's state type hasn't changed — even if the parent's layout has. This is explained fully in the JIT hot-swap section.
 
-This is also the memory-management win of the pattern. If you model the domain at the right granularity, you do **not** need a second hand-written subsystem for state ownership, state lifetime, or offset bookkeeping. Each memoized unit declares the exact state layout it needs; the parent embeds that layout as a field; Terra's normal value/layout rules determine offsets; the parent passes a pointer to the embedded child state. Ownership, lifetime, and access paths all fall out of the same structure. The model is the memory plan.
+**State is compiled, not managed.** This is the strongest consequence of the pattern and it should shape the whole architecture. A memoized compiler does not merely generate code that happens to need some state; it generates the code **and** the exact state ABI that code owns. The pair `{ fn, state_t }` is a closed unit. The function only makes sense with that `state_t`; the `state_t` only makes sense for that function. They are born together, cached together, published together, and retired together.
+
+In the schema DSL, this pair is enforced as a **language intrinsic**. `Unit` is a built-in type provided by `schema.t` itself — not declared by any phase, not owned by any module. It is always available, always canonical, always `{ fn: TerraFunc, state_t: TerraType }`. Compile transitions (`phase X to Y via compile`) are validated to return either the builtin `Unit` or a custom `unit` type (which auto-injects the same canonical fields). This means the architecture is not a convention that can drift — it is structurally enforced by the schema language.
+
+That is why this pattern largely deletes hand-written state-management and memory-management subsystems. There is no separate phase where a human invents a parallel ownership graph, offset table, buffer pool, or lifetime protocol for DSP state. Each memoized unit declares the exact state layout it needs; the parent embeds that layout as a field; Terra's normal value/layout rules determine offsets; the parent passes a pointer to the embedded child state. Ownership, lifetime, and access paths all fall out of the same structure. The model is the memory plan.
+
+A useful mental model for this repo:
+
+- compilation produces **code + state ABI**
+- edit-time instantiation allocates **one root state value** for the active compiled product
+- playback does **zero allocations and zero frees** in the hot path
+- recompilation publishes a new `{ fn, state_t }` pair; the old pair remains valid for the old state image until retirement
+
+So alloc/free are not part of the audio algorithm. They are edit-time publication events. The audio thread should not know how to allocate, free, resize, or reconcile state. It should only receive a pointer to the state image that was already compiled for the currently published function.
 
 The pattern applied at three levels:
 
 ```lua
-compile_effect  = terralib.memoize(function(effect)   return { fn, state_t } end)
-compile_track   = terralib.memoize(function(track)    return { fn, state_t } end)
-compile_session = terralib.memoize(function(session)   return render_fn       end)
+compile_effect  = terralib.memoize(function(effect)  return { fn, state_t } end)
+compile_track   = terralib.memoize(function(track)   return { fn, state_t } end)
+compile_session = terralib.memoize(function(session) return { fn, state_t } end)
 ```
 
-From this, four properties emerge simultaneously: incremental compilation (only the changed path recompiles), state isolation (each function owns its ABI), code size control (each memoize boundary is a call boundary keeping functions small for LLVM and I-cache), and hot-swap (the top-level function is a Lua variable that you reassign). See the JIT hot-swap section for the complete explanation.
+From this, four properties emerge simultaneously: incremental compilation (only the changed path recompiles), state isolation (each function owns its ABI), code size control (each memoize boundary is a call boundary keeping functions small for LLVM and I-cache), and hot-swap (the top-level function is a Lua variable that you reassign or publish through a stable callback/engine image). See the JIT hot-swap section for the complete explanation.
 
 
 ### The schema DSL: validated ASDL as a language extension
@@ -720,7 +733,7 @@ These are Terra methods (not macros). They define what `+` and `*` mean for colo
 
 ### Step 4: Generate Terra functions
 
-The ASDL tree, the methods that return quotes, and the metamethods on the structs all come together in the core pattern: a memoized function that takes a domain configuration and returns `{ fn, state_t }` — a compiled Terra function and the state type it operates on. For simple cases (no persistent state needed), you can return just the function. For anything with per-instance state (filter history, accumulators, voice allocations), always return both.
+The ASDL tree, the methods that return quotes, and the metamethods on the structs all come together in the core pattern: a memoized function that takes a domain configuration and returns `{ fn, state_t }` — a compiled Terra function and the state type it operates on. In this repo, treat that pair as **canonical at every compile boundary**. The schema DSL enforces this: `Unit` is a built-in intrinsic type with `{ fn, state_t }` — no declaration needed. If no persistent state is needed, return `state_t = tuple()`. Do not collapse the compile product to just `fn`; the whole point is that the function owns its ABI, even when that ABI is empty. Custom compile products with extra fields use `unit Name ... end` in the schema; the canonical fields are auto-injected.
 
 ```lua
 local compile_processor = terralib.memoize(function(plan_key)
@@ -1311,11 +1324,13 @@ Only the last case — a global parameter change — recompiles the entire tree.
 
 The key: during compilation, the OLD function keeps running. The hot loop never stalls. It calls whatever `current_render` pointed to when it last read the pointer. When compilation finishes and the pointer updates, the next iteration calls the new function. The transition is seamless.
 
-For domains where even 1-buffer latency matters, you can pre-warm: call the new function once in a background thread (triggering LLVM compilation) before swapping the pointer. Then the swap is instantaneous — the function is already compiled.
+For low-latency audio systems, the stronger form is: keep a **stable callback** and publish a coherent **engine image** containing the function pointer plus the root state pointer it was compiled for. The callback itself never changes. It just reads the current engine image and calls through it. Compilation happens on the edit path; playback only sees already-compiled native code plus the matching state image.
+
+For domains where even 1-buffer latency matters, you can pre-warm: force LLVM compilation before publication (`fn:compile()` or an equivalent warm-up call) and then swap the engine image pointer. Then the swap is instantaneous — the function is already compiled.
 
 ### Complete example: hot-swappable audio engine
 
-This example uses session-level memoization (one compiled function for the entire session). For production use with large projects, apply the granular pattern from the section above: memoize at each level with isolated state types. The session-level version here is simpler to read and demonstrates the hot-swap mechanism.
+This example uses session-level memoization (one compiled function for the entire session). For production use with large projects, apply the granular pattern from the section above: memoize at each level with isolated state types, and publish a coherent engine image `{ fn_ptr, state_ptr }` through a stable callback. The session-level version here is simpler to read and demonstrates the hot-swap mechanism.
 
 ```lua
 local asdl = require 'asdl'
@@ -1489,7 +1504,7 @@ In our pattern: zero. `terralib.memoize` is the cache. The function pointer is t
 
 ### The insight
 
-The entire live-recompilation system — JIT compilation, caching, incremental recompilation, state isolation, code size control, hot-swap — is not a feature we built. It's an emergent property of one design decision applied at every level: `terralib.memoize` on functions that return `{ fn, state_t }`.
+The entire live-recompilation system — JIT compilation, caching, incremental recompilation, state isolation, code size control, hot-swap, and most of what would traditionally be called state/memory management — is not a feature we built. It's an emergent property of one design decision applied at every level: `terralib.memoize` on functions that return `{ fn, state_t }`.
 
 From that single decision, five properties emerge simultaneously:
 
@@ -2770,7 +2785,9 @@ The developer's job: define the domain in ASDL (via the schema DSL or raw string
 
 The same is true of error handling and stage ownership. If each ASDL method boundary is explicit, then each method is also a natural **error boundary**: body fails here, degrade here, continue everywhere else. If each loading/definition/typecheck/JIT/runtime boundary is explicit, then there is no hidden ambiguity about where work belongs. Loading validates and constructs schema/types. Definition walks ASDL and emits quotes. Typechecking queries exotype behavior lazily. First call JIT-compiles. Runtime executes only machine code. These are not separate frameworks layered on top of the system. They are the system's natural joints.
 
-The hot-swap capability is not a feature we build. It's an emergent property: Terra functions are values in Lua variables. `terralib.memoize` caches them by configuration. Changing the configuration changes the variable. The hot loop calls whatever the variable points to. Old functions stay cached. Undo is a cache hit. Applied at every level with granular state types, `terralib.memoize` simultaneously provides incremental compilation (only the changed path recompiles), state isolation (each function owns its ABI), memory/lifetime management by construction (ownership follows embedded state layout), code size control (each function is a call boundary, keeping LLVM and I-cache happy), and hot-swap (reassign the pointer). Multiple architectural wins from one correctly modeled set of boundaries.
+The hot-swap capability is not a feature we build. It's an emergent property: Terra functions are values in Lua variables or published engine-image pointers. `terralib.memoize` caches them by configuration. Changing the configuration changes the published pair. The hot loop calls whatever the current publication points to. Old functions stay cached. Undo is a cache hit. Applied at every level with granular state types, `terralib.memoize` simultaneously provides incremental compilation (only the changed path recompiles), state isolation (each function owns its ABI), memory/lifetime management by construction (ownership follows embedded state layout), code size control (each function is a call boundary, keeping LLVM and I-cache happy), and hot-swap (reassign the pointer or publish a new engine image). Multiple architectural wins from one correctly modeled set of boundaries.
+
+The strongest phrasing for this repo is: **state is compiled, not managed**. A compile product is not "some code plus some metadata"; it is a closed runtime artifact `{ fn, state_t }`. The function and its state ABI are one thing. Edit-time code is allowed to instantiate a new root state image and publish it. Playback code should do no allocation, no free, no resizing, no offset bookkeeping, no ownership reconciliation. In a well-formed design, the audio/render thread only reads the already-published function/state pair and executes arithmetic.
 
 Everything in this document — the exotype theory, the ASDL phase design, the metamethods, the schema DSL, the seven examples, the JIT section — is context for one line:
 

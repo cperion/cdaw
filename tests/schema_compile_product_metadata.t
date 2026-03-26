@@ -20,13 +20,13 @@ local schema CompileMetaDemo
         end
 
         methods
-            GraphProgram:compile() -> Kernel.Unit
+            GraphProgram:compile() -> Unit
                 status = "real"
                 fallback = function(self, err)
-                    return types.Kernel.Unit(unit_nop, int)
+                    return types.Unit(unit_nop, int)
                 end
                 impl = function(self)
-                    return types.Kernel.Unit(unit_nop, int)
+                    return types.Unit(unit_nop, int)
                 end
 
             GraphProgram:label() -> Kernel.Label
@@ -37,11 +37,6 @@ local schema CompileMetaDemo
     end
 
     phase Kernel
-        record Unit
-            fn: TerraFunc
-            state_t: TerraType
-        end
-
         record Label
             text: string
         end
@@ -66,7 +61,7 @@ assert(label_m.compile_product_kind == nil)
 
 local gp = CompileMetaDemo.types.Scheduled.GraphProgram(1)
 local u = gp:compile()
-assert(CompileMetaDemo.types.Kernel.Unit:isclassof(u))
+assert(CompileMetaDemo.types.Unit:isclassof(u))
 assert(u.state_t == int)
 assert(u.fn == unit_nop)
 

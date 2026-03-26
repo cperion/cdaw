@@ -4,6 +4,7 @@
 local DAW = require("daw")
 local D = DAW.types
 local List = require("terralist")
+local KS = require("tests/kernel_support")
 local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 local TICKS_PER_BEAT = 960
 
@@ -15,8 +16,9 @@ local function graph_output(unit, gp)
     local BS = gp.transport.buffer_size
     local total = math.max(gp.total_buffers * BS, 1)
     local bufs = terralib.new(float[total])
+    local state_raw = KS.alloc_unit_state(unit)
     for i = 0, total - 1 do bufs[i] = 0.0 end
-    unit.fn(bufs, BS)
+    unit.fn(bufs, BS, state_raw)
     return bufs[gp.graph.out_buf * BS]
 end
 
@@ -65,8 +67,9 @@ do
     local unit = tp:compile()
     local outL = terralib.new(float[64])
     local outR = terralib.new(float[64])
+    local state_raw = KS.alloc_unit_state(unit)
     for i = 0, 63 do outL[i] = 0.0; outR[i] = 0.0 end
-    unit.fn(outL, outR, 64)
+    unit.fn(outL, outR, 64, state_raw)
     check(outL[0] > 0.49 and outL[0] < 0.51, "hard-left volume 0.5 on +1 square = 0.5 left")
     check(approx(outR[0], 0.0, 0.01), "hard-left right channel ~= 0")
     print("  PASS")
@@ -94,7 +97,8 @@ do
     local kernel = project:lower():resolve(TICKS_PER_BEAT):classify():schedule():compile()
     local outL = terralib.new(float[64])
     local outR = terralib.new(float[64])
-    kernel:entry_fn()(outL, outR, 64)
+    local state_raw = KS.alloc_state(kernel)
+    kernel:entry_fn()(outL, outR, 64, state_raw)
     local expected = (0.5 + 0.25) * math.cos(math.pi / 4)
     check(approx(outL[0], expected, 0.01), "mixed left output")
     check(approx(outR[0], expected, 0.01), "mixed right output")

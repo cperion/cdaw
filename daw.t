@@ -35,6 +35,11 @@ local DAW = schema DAW
     extern PluginHandle = is_plugin_handle
     extern TerraUIDecl = is_terraui_decl
 
+    use TerraUI = require("lib/terraui_schema")
+
+    pipeline Editor -> Authored -> Resolved -> Classified -> Scheduled -> Kernel
+    pipeline Editor -> View -> TerraUI.Decl
+
     -- ════════════════════════════════════════════════════════════════
     -- PHASE 0: EDITOR
     -- User-authoring layer. Bitwig-shaped editing concepts.
@@ -45,7 +50,7 @@ local DAW = schema DAW
     --- User-facing authoring state. Bitwig-shaped concepts: tracks, devices, clips.
     --- Commands operate on Editor types. Invalid states should be unrepresentable.
     --- This layer owns no transient UI state (selection, zoom, hover, drag).
-    phase Editor to Authored via lower
+    phase Editor
         --- Top-level project document. The canonical saved form.
         record Project
             name: string
@@ -725,6 +730,12 @@ local DAW = schema DAW
                 doc "Lower tempo map with points and signatures."
                 impl = "src/editor/transport"
                 fallback = function(self, err) return types.Authored.TempoMap(L(), L()) end
+                status = "real"
+
+        --- Editor -> View projection method.
+            Project:to_view() -> View.Root
+                doc "Project the editor state into a View tree for UI rendering."
+                impl = "src/editor/to_view"
                 status = "real"
         end
     end
@@ -2480,7 +2491,7 @@ local DAW = schema DAW
     --- Canonical semantic graph document. The source of truth after lowering.
     --- Graph is the universal container. NodeKind is the one sum type.
     --- Richness belongs here; resolve should not invent absent semantics.
-    phase Authored to Resolved via resolve
+    phase Authored
         --- Authored project: transport, tracks, scenes, tempo, assets.
         record Project
             name: string
@@ -3505,7 +3516,7 @@ local DAW = schema DAW
 
     --- Flattened runtime-facing semantic boundary. IDs fixed, ticks computed,
     --- local flat tables. Zero sum types from here down.
-    phase Resolved to Classified via classify
+    phase Resolved
         --- Resolved project.
         record Project
             transport: Transport
@@ -3888,7 +3899,7 @@ local DAW = schema DAW
 
     --- Rate classification: every parameter bound to a rate class and slot.
     --- Binding = (rate_class, slot). rate_class: 0=literal 1=init 2=block 3=sample 4=event 5=voice.
-    phase Classified to Scheduled via schedule
+    phase Classified
         --- Classified project.
         record Project
             transport: Transport
@@ -4266,7 +4277,7 @@ local DAW = schema DAW
     -- ════════════════════════════════════════════════════════════════
 
     --- Buffer-allocated reusable programs. Raw jobs are data; programs own compile().
-    phase Scheduled to Kernel via compile
+    phase Scheduled
         --- Scheduled project.
         record Project
             transport: Transport
@@ -4666,49 +4677,55 @@ local DAW = schema DAW
         methods
             doc "Compile scheduled programs into native Terra code."
             Project:compile() -> Kernel.Project
-                doc "Compile full project: compose track units into render entry."
+                doc "Compile full project: compose track units into render entry + state ABI."
                 impl = "src/scheduled/project"
-                fallback = function(self, err) local terra silent(ol: &float, or_: &float, f: int32) for i = 0,f do ol[i]=0.0f; or_[i]=0.0f end end; return types.Kernel.Project(silent) end
+                fallback = function(self, err)
+                    local terra silent(ol: &float, or_: &float, f: int32, state: &uint8)
+                        for i = 0, f do ol[i] = 0.0f; or_[i] = 0.0f end
+                    end
+                    local terra init(state: &uint8) end
+                    return types.Kernel.Project(silent, tuple(), init)
+                end
                 status = "real"
-            TrackProgram:compile() -> Kernel.Unit
+            TrackProgram:compile() -> Unit
                 doc "Compile track program: compose graph, clip, send, mix, output units."
                 impl = "src/scheduled/project"
-                fallback = function(self, err) local terra noop(ol: &float, or_: &float, f: int32) end; return types.Kernel.Unit(noop, tuple()) end
+                fallback = function(self, err) local terra noop(ol: &float, or_: &float, f: int32) end; return types.Unit(noop, tuple()) end
                 status = "real"
-            GraphProgram:compile() -> Kernel.Unit
+            GraphProgram:compile() -> Unit
                 doc "Compile graph program: compose node and mod units."
                 impl = "src/scheduled/project"
-                fallback = function(self, err) local terra noop(b: &float, f: int32) end; return types.Kernel.Unit(noop, tuple()) end
+                fallback = function(self, err) local terra noop(b: &float, f: int32) end; return types.Unit(noop, tuple()) end
                 status = "real"
-            NodeProgram:compile() -> Kernel.Unit
+            NodeProgram:compile() -> Unit
                 doc "Compile one node's DSP into a reusable unit."
                 impl = "src/scheduled/leaf_programs"
-                fallback = function(self, err) local terra noop(b: &float, f: int32, a: &float, b2: &float, c: &float, d: &float, e: &float) end; return types.Kernel.Unit(noop, tuple()) end
+                fallback = function(self, err) local terra noop(b: &float, f: int32, a: &float, b2: &float, c: &float, d: &float, e: &float) end; return types.Unit(noop, tuple()) end
                 status = "real"
-            ModProgram:compile() -> Kernel.Unit
+            ModProgram:compile() -> Unit
                 doc "Compile one modulator into a reusable unit."
                 impl = "src/scheduled/leaf_programs"
-                fallback = function(self, err) local terra noop(b: &float, f: int32, a: &float, b2: &float, c: &float, d: &float, e: &float) end; return types.Kernel.Unit(noop, tuple()) end
+                fallback = function(self, err) local terra noop(b: &float, f: int32, a: &float, b2: &float, c: &float, d: &float, e: &float) end; return types.Unit(noop, tuple()) end
                 status = "real"
-            ClipProgram:compile() -> Kernel.Unit
+            ClipProgram:compile() -> Unit
                 doc "Compile one clip into a reusable unit."
                 impl = "src/scheduled/leaf_programs"
-                fallback = function(self, err) local terra noop(b: &float, f: int32, a: &float, b2: &float, c: &float, d: &float, e: &float) end; return types.Kernel.Unit(noop, tuple()) end
+                fallback = function(self, err) local terra noop(b: &float, f: int32, a: &float, b2: &float, c: &float, d: &float, e: &float) end; return types.Unit(noop, tuple()) end
                 status = "real"
-            SendProgram:compile() -> Kernel.Unit
+            SendProgram:compile() -> Unit
                 doc "Compile one send into a reusable unit."
                 impl = "src/scheduled/leaf_programs"
-                fallback = function(self, err) local terra noop(b: &float, f: int32, a: &float, b2: &float, c: &float, d: &float, e: &float) end; return types.Kernel.Unit(noop, tuple()) end
+                fallback = function(self, err) local terra noop(b: &float, f: int32, a: &float, b2: &float, c: &float, d: &float, e: &float) end; return types.Unit(noop, tuple()) end
                 status = "real"
-            MixProgram:compile() -> Kernel.Unit
+            MixProgram:compile() -> Unit
                 doc "Compile one mix bus into a reusable unit."
                 impl = "src/scheduled/leaf_programs"
-                fallback = function(self, err) local terra noop(b: &float, f: int32, a: &float, b2: &float, c: &float, d: &float, e: &float) end; return types.Kernel.Unit(noop, tuple()) end
+                fallback = function(self, err) local terra noop(b: &float, f: int32, a: &float, b2: &float, c: &float, d: &float, e: &float) end; return types.Unit(noop, tuple()) end
                 status = "real"
-            OutputProgram:compile() -> Kernel.Unit
+            OutputProgram:compile() -> Unit
                 doc "Compile one output stage into a reusable unit."
                 impl = "src/scheduled/leaf_programs"
-                fallback = function(self, err) local terra noop(b: &float, f: int32, a: &float, b2: &float, c: &float, d: &float, e: &float) end; return types.Kernel.Unit(noop, tuple()) end
+                fallback = function(self, err) local terra noop(b: &float, f: int32, a: &float, b2: &float, c: &float, d: &float, e: &float) end; return types.Unit(noop, tuple()) end
                 status = "real"
         end
     end
@@ -4718,27 +4735,28 @@ local DAW = schema DAW
     -- Fully monomorphic execution surface. Terra only.
     -- ════════════════════════════════════════════════════════════════
 
-    --- Fully monomorphic native execution surface. The atomic reusable
-    --- compile product is Kernel.Unit: one function, one owned state ABI.
+    --- Fully monomorphic native execution surface.
+    --- The builtin Unit intrinsic provides the canonical { fn, state_t } compile product.
     phase Kernel
-        --- Atomic reusable compile product: one function, one owned state type.
-        product Unit
-            doc "The canonical { fn, state_t } compile product."
-            fn: TerraFunc
-            state_t: TerraType
-        end
-
-        --- Compiled project with render entry point.
-        record Project
-            entry: TerraFunc
-            unique
+        --- Compiled project with render entry point and owned state ABI.
+        unit Project
+            doc "Compiled project with render entry point and owned state ABI."
+            init_fn: TerraFunc
         end
 
         --- Kernel methods.
         methods
             doc "Kernel runtime accessors."
             Project:entry_fn() -> TerraFunc
-                doc "Return the compiled render entry function."
+                doc "Return the compiled render entry function: terra(out_l, out_r, frames, state_raw)."
+                impl = "src/kernel/project"
+                status = "real"
+            Project:state_type() -> TerraType
+                doc "Return the runtime state ABI owned by this compiled project."
+                impl = "src/kernel/project"
+                status = "real"
+            Project:state_init_fn() -> TerraFunc
+                doc "Return the initializer: terra(state_raw) zero/init the project state tree."
                 impl = "src/kernel/project"
                 status = "real"
         end

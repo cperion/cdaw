@@ -27,14 +27,14 @@ local schema TestPlanDemo
         methods
             doc = [[Public scheduled-phase boundaries.]]
 
-            GraphProgram:compile() -> Kernel.Unit
+            GraphProgram:compile() -> Unit
                 doc = [[Compile a graph program into an owned kernel unit.]]
                 status = "real"
                 fallback = function(self, err)
-                    return types.Kernel.Unit(unit_nop, int)
+                    return types.Unit(unit_nop, int)
                 end
                 impl = function(self)
-                    return types.Kernel.Unit(unit_nop, int)
+                    return types.Unit(unit_nop, int)
                 end
 
             GraphProgram:label() -> Kernel.Label
@@ -47,12 +47,6 @@ local schema TestPlanDemo
 
     phase Kernel
         doc = [[Kernel phase.]]
-
-        record Unit
-            doc = [[Owned compile product.]]
-            fn: TerraFunc
-            state_t: TerraType
-        end
 
         record Label
             doc = [[Display label.]]

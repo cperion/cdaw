@@ -5,6 +5,7 @@
 local DAW = require("daw")
 local D = DAW.types
 local List = require("terralist")
+local KS = require("tests/kernel_support")
 local TICKS_PER_BEAT = 960
 
 -- Shorthand for ASDL-compatible lists
@@ -79,11 +80,14 @@ print("  Classified→Scheduled: OK (" .. 0 .. " diags)")
 -- Phase 4→5: Scheduled → Kernel
 local kernel = scheduled:compile()
 assert(kernel ~= nil, "compile returned nil")
-assert(kernel.entry ~= nil, "kernel missing entry")
+assert(kernel.fn ~= nil, "kernel missing fn")
+assert(kernel:state_type() ~= nil, "kernel missing state_type")
+assert(kernel:state_init_fn() ~= nil, "kernel missing state_init_fn")
 print("  Scheduled→Kernel: OK")
 
 -- Phase 5: Kernel → entry_fn
 local entry = kernel:entry_fn()
+local state_raw = KS.alloc_state(kernel)
 assert(entry ~= nil, "entry_fn returned nil")
 print("  Kernel.entry_fn: OK")
 

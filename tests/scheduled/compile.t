@@ -4,6 +4,7 @@
 local DAW = require("daw")
 local D = DAW.types
 local List = require("terralist")
+local KS = require("tests/kernel_support")
 local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 local TICKS_PER_BEAT = 960
 
@@ -37,8 +38,9 @@ do
     local BS = gp.transport.buffer_size
     local total = math.max(gp.total_buffers * BS, 1)
     local bufs = terralib.new(float[total])
+    local state_raw = KS.alloc_unit_state(unit)
     for i = 0, total - 1 do bufs[i] = 0.0 end
-    unit.fn(bufs, BS)
+    unit.fn(bufs, BS, state_raw)
     local out0 = bufs[gp.graph.out_buf * BS]
     check(math.abs(out0) > 0.01, "graph output is non-zero")
     print("  PASS")
@@ -67,8 +69,9 @@ do
     local unit = tp:compile()
     local outL = terralib.new(float[64])
     local outR = terralib.new(float[64])
+    local state_raw = KS.alloc_unit_state(unit)
     for i = 0, 63 do outL[i] = 0.0; outR[i] = 0.0 end
-    unit.fn(outL, outR, 64)
+    unit.fn(outL, outR, 64, state_raw)
     check(math.abs(outL[0]) > 0.01, "track unit produces sound")
     check(approx(outL[0], outR[0], 0.001), "center pan produces equal L/R")
     print("  PASS")
@@ -101,9 +104,10 @@ do
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
     local kernel = project:lower():resolve(TICKS_PER_BEAT):classify():schedule():compile()
     local entry = kernel:entry_fn()
+    local state_raw = KS.alloc_state(kernel)
     local outL = terralib.new(float[64])
     local outR = terralib.new(float[64])
-    entry(outL, outR, 64)
+    entry(outL, outR, 64, state_raw)
     local expected = ((0.4 * 0.5) + (0.2 * 0.5)) * math.cos(math.pi / 4)
     check(approx(outL[0], expected, 0.01), "two tracks mixed to expected equal-power output")
     check(approx(outL[0], outR[0], 0.001), "mix is symmetric L/R")

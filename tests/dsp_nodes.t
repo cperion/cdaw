@@ -6,6 +6,7 @@
 local DAW = require("daw")
 local D = DAW.types
 local List = require("terralist")
+local KS = require("tests/kernel_support")
 local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
 local FRAMES = 64
@@ -71,9 +72,10 @@ local function run_device(name, kind, params, volume, include_source)
         return nil, nil
     end
 
+    local state_raw = KS.alloc_state(kernel)
     local out_l = terralib.new(float[FRAMES])
     local out_r = terralib.new(float[FRAMES])
-    render(out_l, out_r, FRAMES)
+    render(out_l, out_r, FRAMES, state_raw)
     return out_l[0], out_r[0]
 end
 
@@ -202,9 +204,10 @@ do
 
     local kernel = project:lower():resolve(960):classify():schedule():compile()
     local render = kernel:entry_fn()
+    local state_raw = KS.alloc_state(kernel)
     local out_l = terralib.new(float[FRAMES])
     local out_r = terralib.new(float[FRAMES])
-    render(out_l, out_r, FRAMES)
+    render(out_l, out_r, FRAMES, state_raw)
 
     -- Expected: T1 = 1.0*0.4*1.0 = 0.4, T2 = 1.0*0.2*0.5 = 0.1, total = 0.5
     local expected = 0.4 * 1.0 + 0.2 * 0.5
@@ -247,9 +250,10 @@ do
 
     local kernel = project:lower():resolve(960):classify():schedule():compile()
     local render = kernel:entry_fn()
+    local state_raw = KS.alloc_state(kernel)
     local out_l = terralib.new(float[FRAMES])
     local out_r = terralib.new(float[FRAMES])
-    render(out_l, out_r, FRAMES)
+    render(out_l, out_r, FRAMES, state_raw)
 
     -- Expected: 1.0 * 0.8 * 0.5 * 1.0 = 0.4
     local expected = 0.8 * 0.5
