@@ -1,10 +1,10 @@
 -- tests/scheduled/compile.t
 -- Tests for Scheduled -> Kernel public compile surfaces.
 
-local D = require("daw-unified")
-require("impl/init")
-local F = require("impl/_support/fallbacks")
-local L = F.L
+local DAW = require("daw")
+local D = DAW.types
+local List = require("terralist")
+local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 local TICKS_PER_BEAT = 960
 
 local pass, fail = 0, 0
@@ -29,7 +29,7 @@ do
         L{D.Classified.Literal(100), D.Classified.Literal(0.5)},
         L(), L(), L(), L(), L(), L(),
         1, 0)
-    local gp = gs:schedule(F.classified_transport(), F.classified_tempo_map())
+    local gp = gs:schedule(D.Classified.Transport(44100, 512, 120, 0, 4, 4, 0, false, 0, 0), D.Classified.TempoMap(L()))
     local unit = gp:compile()
     check(unit ~= nil, "kernel unit returned")
     check(unit.fn ~= nil, "unit fn returned")
@@ -53,10 +53,10 @@ do
             D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{
-                D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Square", D.Authored.SquareOsc(),
+                D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Square", D.Authored.SquareOsc,
                     L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
                     L(), nil, nil, nil, true, nil)),
-                D.Editor.NativeDevice(D.Editor.NativeDeviceBody(11, "Gain", D.Authored.GainNode(),
+                D.Editor.NativeDevice(D.Editor.NativeDeviceBody(11, "Gain", D.Authored.GainNode,
                     L{D.Editor.ParamValue(0, "gain", 0.75, 0, 4, D.Editor.StaticValue(0.75), D.Editor.Replace, D.Editor.NoSmoothing)},
                     L(), nil, nil, nil, true, nil))
             }),
@@ -84,16 +84,16 @@ do
                 D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.DeviceChain(L{
-                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Square", D.Authored.SquareOsc(), L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil)),
-                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(11, "Gain", D.Authored.GainNode(), L{D.Editor.ParamValue(0, "gain", 1, 0, 4, D.Editor.StaticValue(0.4), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))
+                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil)),
+                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(11, "Gain", D.Authored.GainNode, L{D.Editor.ParamValue(0, "gain", 1, 0, 4, D.Editor.StaticValue(0.4), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))
                 }),
                 L(), L(), L(), nil, nil, false, false, false, false, false, nil),
             D.Editor.Track(2, "T2", 2, D.Editor.AudioTrack, D.Editor.NoInput,
                 D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.DeviceChain(L{
-                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(20, "Square", D.Authored.SquareOsc(), L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil)),
-                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(21, "Gain", D.Authored.GainNode(), L{D.Editor.ParamValue(0, "gain", 1, 0, 4, D.Editor.StaticValue(0.2), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))
+                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(20, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil)),
+                    D.Editor.NativeDevice(D.Editor.NativeDeviceBody(21, "Gain", D.Authored.GainNode, L{D.Editor.ParamValue(0, "gain", 1, 0, 4, D.Editor.StaticValue(0.2), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))
                 }),
                 L(), L(), L(), nil, nil, false, false, false, false, false, nil)
         },
@@ -112,7 +112,7 @@ end
 
 print("4. scheduled.node_program.compile")
 do
-    local unit = F.scheduled_node_program(1):compile()
+    local unit = D.Scheduled.NodeProgram(D.Scheduled.NodeJob(1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), L(), L(), L(), L(), L(), D.Scheduled.Transport(44100,512,120,0,4,4,0,false,0,0), D.Scheduled.TempoMap(L())):compile()
     check(unit ~= nil, "node program unit returned")
     check(unit.fn ~= nil, "node program fn returned")
     print("  PASS")
@@ -120,7 +120,7 @@ end
 
 print("5. scheduled.mod_program.compile")
 do
-    local unit = F.scheduled_mod_program():compile()
+    local unit = D.Scheduled.ModProgram(D.Scheduled.ModJob(0,0,0,0,0,0,0,0,0,false,0,0,0,0,0,D.Scheduled.Binding(0,0)), L(), L(), D.Scheduled.Transport(44100,512,120,0,4,4,0,false,0,0), D.Scheduled.TempoMap(L())):compile()
     check(unit ~= nil, "mod program unit returned")
     check(unit.fn ~= nil, "mod program fn returned")
     print("  PASS")
@@ -128,7 +128,7 @@ end
 
 print("6. scheduled.clip_program.compile")
 do
-    local unit = F.scheduled_clip_program():compile()
+    local unit = D.Scheduled.ClipProgram(D.Scheduled.ClipJob(0,0,0,0,0,0,0,D.Scheduled.Binding(0,0),false,0,0,0,0), L(), D.Scheduled.Transport(44100,512,120,0,4,4,0,false,0,0), D.Scheduled.TempoMap(L())):compile()
     check(unit ~= nil, "clip program unit returned")
     check(unit.fn ~= nil, "clip program fn returned")
     print("  PASS")
@@ -136,7 +136,7 @@ end
 
 print("7. scheduled.send_program.compile")
 do
-    local unit = F.scheduled_send_program():compile()
+    local unit = D.Scheduled.SendProgram(D.Scheduled.SendJob(0,0,D.Scheduled.Binding(0,0),false,false), L(), D.Scheduled.Transport(44100,512,120,0,4,4,0,false,0,0), D.Scheduled.TempoMap(L())):compile()
     check(unit ~= nil, "send program unit returned")
     check(unit.fn ~= nil, "send program fn returned")
     print("  PASS")
@@ -144,7 +144,7 @@ end
 
 print("8. scheduled.mix_program.compile")
 do
-    local unit = F.scheduled_mix_program():compile()
+    local unit = D.Scheduled.MixProgram(D.Scheduled.MixJob(0,0,D.Scheduled.Binding(0,0)), L(), D.Scheduled.Transport(44100,512,120,0,4,4,0,false,0,0), D.Scheduled.TempoMap(L())):compile()
     check(unit ~= nil, "mix program unit returned")
     check(unit.fn ~= nil, "mix program fn returned")
     print("  PASS")
@@ -152,7 +152,7 @@ end
 
 print("9. scheduled.output_program.compile")
 do
-    local unit = F.scheduled_output_program():compile()
+    local unit = D.Scheduled.OutputProgram(D.Scheduled.OutputJob(0,0,0,D.Scheduled.Binding(0,0),D.Scheduled.Binding(0,0)), L(), D.Scheduled.Transport(44100,512,120,0,4,4,0,false,0,0), D.Scheduled.TempoMap(L())):compile()
     check(unit ~= nil, "output program unit returned")
     check(unit.fn ~= nil, "output program fn returned")
     print("  PASS")

@@ -4,7 +4,8 @@
 -- Usage:
 --   terra tools/memoize_probe.t
 
-local D = require("daw-unified")
+local DAW = require("daw")
+local D = DAW.types
 
 local function line()
     print(string.rep("─", 72))
@@ -78,8 +79,8 @@ local id_project = terralib.memoize(function(p)
     proj_calls = proj_calls + 1
     return p
 end)
-local F = require("impl/_support/fallbacks")
-local L = F.L
+local List = require("terralist")
+local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 local shared_transport = D.Editor.Transport(44100, 64, 120, 0, 4, 4, D.Editor.QNone, false, nil)
 local shared_tracks = L()
 local shared_scenes = L()

@@ -5,10 +5,10 @@
 -- Add terraui/lib to require path
 package.terrapath = (package.terrapath or "") .. ";./terraui/?.t"
 
-local D = require("daw-unified")
-require("impl/init")
-local F = require("impl/_support/fallbacks")
-local L = F.L
+local DAW = require("daw")
+local D = DAW.types
+local List = require("terralist")
+local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 local pass, fail = 0, 0
 local function check(c, m) if c then pass=pass+1 else fail=fail+1; print("  FAIL: "..m) end end
 

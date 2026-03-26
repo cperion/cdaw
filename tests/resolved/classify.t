@@ -1,10 +1,10 @@
 -- tests/resolved/classify.t
 -- Per-method tests for Resolved -> Classified classify methods.
 
-local D = require("daw-unified")
-require("impl/init")
-local F = require("impl/_support/fallbacks")
-local L = F.L
+local DAW = require("daw")
+local D = DAW.types
+local List = require("terralist")
+local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 local TICKS_PER_BEAT = 960
 
 local pass, fail = 0, 0
@@ -70,7 +70,7 @@ do
             D.Resolved.Param(1, 0, "pan", 0, -1, 1, D.Resolved.ParamSourceRef(0, 0.3, nil), 0, 0, 0)
         },
         L(), L(), L(), L(),
-        F.resolved_graph_slice(100)
+        D.Resolved.GraphSlice(L{D.Resolved.Graph(100, 0, 1, 0, 0, 0, 0, L(), L(), 0, 0, 0, 0, 0, 0)}, L(), L(), L(), L(), L(), L(), L(), L())
     )
     local r = ts:classify()
     check(r.track.id == 5, "track id")
@@ -92,7 +92,7 @@ do
             D.Editor.ParamValue(1, "p", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-                    10, "G", D.Authored.GainNode(),
+                    10, "G", D.Authored.GainNode,
                     L{D.Editor.ParamValue(0, "g", 1, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing)},
                     L(), nil, nil, nil, true, nil))
             }),

@@ -1,12 +1,13 @@
 -- app/bootstrap.t
 -- App-level bootstrap data and initial View construction.
 
-local D = require("daw-unified")
+local DAW = require("daw")
+local D = DAW.types
 
 local E = D.Editor
 local V = D.View
 
-local C = require("impl/view/_support/common")
+local C = require("src/view/common")
 
 local M = {}
 

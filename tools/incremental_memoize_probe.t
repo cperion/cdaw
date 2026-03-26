@@ -1,11 +1,11 @@
 -- tools/incremental_memoize_probe.t
 -- Human-readable probe for memoize/incremental recompilation behavior.
 
-local D = require("daw-unified")
-require("impl/init")
+local DAW = require("daw")
+local D = DAW.types
 local session = require("app/session")
-local F = require("impl/_support/fallbacks")
-local L = F.L
+local List = require("terralist")
+local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 local TICKS_PER_BEAT = 960
 
 local function static_param(id, name, value, mn, mx)

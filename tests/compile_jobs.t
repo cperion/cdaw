@@ -1,10 +1,10 @@
 -- tests/compile_jobs.t
 -- New compile-unit tests on the slice/program surface.
 
-local D = require("daw-unified")
-require("impl/init")
-local F = require("impl/_support/fallbacks")
-local L = F.L
+local DAW = require("daw")
+local D = DAW.types
+local List = require("terralist")
+local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 local TICKS_PER_BEAT = 960
 
 local pass, fail = 0, 0
@@ -38,7 +38,7 @@ do
         L{D.Classified.Literal(100), D.Classified.Literal(0.5)},
         L(), L(), L(), L(), L(), L(),
         1, 0)
-    local gp = gs:schedule(F.classified_transport(), F.classified_tempo_map())
+    local gp = gs:schedule(D.Classified.Transport(44100, 512, 120, 0, 4, 4, 0, false, 0, 0), D.Classified.TempoMap(L()))
     local unit = gp:compile()
     local out0 = graph_output(unit, gp)
     check(approx(out0, 0.5, 0.01), "square(+1) * gain(0.5) = 0.5")
@@ -54,7 +54,7 @@ do
             D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(-1), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{
-                D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Square", D.Authored.SquareOsc(),
+                D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Square", D.Authored.SquareOsc,
                     L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
                     L(), nil, nil, nil, true, nil))
             }),
@@ -81,12 +81,12 @@ do
             D.Editor.Track(1, "T1", 2, D.Editor.AudioTrack, D.Editor.NoInput,
                 D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
-                D.Editor.DeviceChain(L{D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Square", D.Authored.SquareOsc(), L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))}),
+                D.Editor.DeviceChain(L{D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))}),
                 L(), L(), L(), nil, nil, false, false, false, false, false, nil),
             D.Editor.Track(2, "T2", 2, D.Editor.AudioTrack, D.Editor.NoInput,
                 D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.25), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
-                D.Editor.DeviceChain(L{D.Editor.NativeDevice(D.Editor.NativeDeviceBody(20, "Square", D.Authored.SquareOsc(), L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))}),
+                D.Editor.DeviceChain(L{D.Editor.NativeDevice(D.Editor.NativeDeviceBody(20, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))}),
                 L(), L(), L(), nil, nil, false, false, false, false, false, nil)
         },
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
@@ -111,7 +111,7 @@ do
                 D.Editor.AutomationRef(D.Editor.AutoCurve(L{D.Editor.AutoPoint(0, 0.2), D.Editor.AutoPoint(1, 0.8)}, D.Editor.Linear)),
                 D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
-            D.Editor.DeviceChain(L{D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Square", D.Authored.SquareOsc(), L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))}),
+            D.Editor.DeviceChain(L{D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))}),
             L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))

@@ -1,10 +1,10 @@
 -- tests/kernel/entry.t
 -- Test for Kernel.Project:entry_fn
 
-local D = require("daw-unified")
-require("impl/init")
-local F = require("impl/_support/fallbacks")
-local L = F.L
+local DAW = require("daw")
+local D = DAW.types
+local List = require("terralist")
+local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
 local pass, fail = 0, 0
 local function check(c, m) if c then pass=pass+1 else fail=fail+1; print("  FAIL: "..m) end end
@@ -22,12 +22,11 @@ do
             L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))
-    local ctx = {diagnostics = {}}
-    local a = project:lower(ctx)
-    local r = a:resolve(ctx)
-    local c = r:classify(ctx)
-    local s = c:schedule(ctx)
-    local k = s:compile(ctx)
+    local a = project:lower()
+    local r = a:resolve(960)
+    local c = r:classify()
+    local s = c:schedule()
+    local k = s:compile()
     check(k ~= nil, "kernel produced")
 
     local entry = k:entry_fn()

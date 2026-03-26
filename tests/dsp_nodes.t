@@ -3,10 +3,10 @@
 -- Each test builds a project with a specific device, compiles it,
 -- runs the render, and checks the output against expected values.
 
-local D = require("daw-unified")
-require("impl/init")
-local F = require("impl/_support/fallbacks")
-local L = F.L
+local DAW = require("daw")
+local D = DAW.types
+local List = require("terralist")
+local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
 local FRAMES = 64
 local pass_count = 0
@@ -38,7 +38,7 @@ local function run_device(name, kind, params, volume, include_source)
     local devices = L()
     if include_source then
         devices:insert(D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-            9, "Src", D.Authored.SquareOsc(),
+            9, "Src", D.Authored.SquareOsc,
             L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
             L(), nil, nil, nil, true, nil
         )))
@@ -60,19 +60,14 @@ local function run_device(name, kind, params, volume, include_source)
         D.Authored.AssetBank(L(), L(), L(), L(), L())
     )
 
-    local ctx = {diagnostics = {}}
-    local authored = project:lower(ctx)
-    local resolved = authored:resolve(ctx)
-    local classified = resolved:classify(ctx)
-    local scheduled = classified:schedule(ctx)
-    local kernel = scheduled:compile(ctx)
+    local authored = project:lower()
+    local resolved = authored:resolve(960)
+    local classified = resolved:classify()
+    local scheduled = classified:schedule()
+    local kernel = scheduled:compile()
     local render = kernel:entry_fn()
 
     if not render then
-        print("    Compile failed! Diagnostics:")
-        for i = 1, #ctx.diagnostics do
-            print("      " .. (ctx.diagnostics[i].message or "?"))
-        end
         return nil, nil
     end
 
@@ -90,7 +85,7 @@ print("════════════════════════�
 -- ── GainNode ──
 print("GainNode: DC 1.0 × gain=0.5 × vol=1.0")
 do
-    local vl, vr = run_device("Gain", D.Authored.GainNode(),
+    local vl, vr = run_device("Gain", D.Authored.GainNode,
         {{0, "gain", 0.5, 0, 4}}, 1.0)
     check(vl and approx(vl, 0.5), string.format("L=%.4f expected 0.5", vl or -1))
     check(vr and approx(vr, 0.0), string.format("R=%.4f expected 0.0 (hard-left pan)", vr or -1))
@@ -100,7 +95,7 @@ end
 -- ── GainNode with volume ──
 print("GainNode: DC 1.0 × gain=0.3 × vol=0.5")
 do
-    local vl, vr = run_device("Gain2", D.Authored.GainNode(),
+    local vl, vr = run_device("Gain2", D.Authored.GainNode,
         {{0, "gain", 0.3, 0, 4}}, 0.5)
     local expected = 0.3 * 0.5
     check(vl and approx(vl, expected), string.format("L=%.4f expected %.4f", vl or -1, expected))
@@ -111,7 +106,7 @@ end
 print("CompressorNode: DC 1.0, threshold=-6dB (0.5), ratio=4")
 do
     -- DC 1.0 is above threshold 0.5: compressed = 0.5 + (1.0-0.5)/4 = 0.625
-    local vl, vr = run_device("Comp", D.Authored.CompressorNode(),
+    local vl, vr = run_device("Comp", D.Authored.CompressorNode,
         {{0, "threshold", -6, -60, 0}, {1, "ratio", 4, 1, 20}}, 1.0)
     local thr = math.pow(10, -6/20)  -- ≈ 0.501
     local expected = thr + (1.0 - thr) / 4.0  -- ≈ 0.626
@@ -151,7 +146,7 @@ end
 -- ── SineOsc: generates audio ──
 print("SineOsc: freq=440 → first sample = sin(0) = 0.0")
 do
-    local vl, vr = run_device("Sine", D.Authored.SineOsc(),
+    local vl, vr = run_device("Sine", D.Authored.SineOsc,
         {{0, "freq", 440, 1, 22050}}, 1.0, false)
     -- First sample: sin(0) = 0.0 (phase starts at 0)
     check(vl ~= nil, "Should produce output")
@@ -171,12 +166,12 @@ do
                 D.Editor.ParamValue(1, "pan", -1, -1, 1, D.Editor.StaticValue(-1), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.DeviceChain(L{
                     D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-                        9, "Src1", D.Authored.SquareOsc(),
+                        9, "Src1", D.Authored.SquareOsc,
                         L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
                         L(), nil, nil, nil, true, nil
                     )),
                     D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-                        10, "G1", D.Authored.GainNode(),
+                        10, "G1", D.Authored.GainNode,
                         L{D.Editor.ParamValue(0, "gain", 0.4, 0, 4, D.Editor.StaticValue(0.4), D.Editor.Replace, D.Editor.NoSmoothing)},
                         L(), nil, nil, nil, true, nil
                     ))
@@ -188,12 +183,12 @@ do
                 D.Editor.ParamValue(1, "pan", -1, -1, 1, D.Editor.StaticValue(-1), D.Editor.Replace, D.Editor.NoSmoothing),
                 D.Editor.DeviceChain(L{
                     D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-                        19, "Src2", D.Authored.SquareOsc(),
+                        19, "Src2", D.Authored.SquareOsc,
                         L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
                         L(), nil, nil, nil, true, nil
                     )),
                     D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-                        20, "G2", D.Authored.GainNode(),
+                        20, "G2", D.Authored.GainNode,
                         L{D.Editor.ParamValue(0, "gain", 0.2, 0, 4, D.Editor.StaticValue(0.2), D.Editor.Replace, D.Editor.NoSmoothing)},
                         L(), nil, nil, nil, true, nil
                     ))
@@ -205,8 +200,7 @@ do
         D.Authored.AssetBank(L(), L(), L(), L(), L())
     )
 
-    local ctx = {diagnostics = {}}
-    local kernel = project:lower(ctx):resolve(ctx):classify(ctx):schedule(ctx):compile(ctx)
+    local kernel = project:lower():resolve(960):classify():schedule():compile()
     local render = kernel:entry_fn()
     local out_l = terralib.new(float[FRAMES])
     local out_r = terralib.new(float[FRAMES])
@@ -230,17 +224,17 @@ do
             D.Editor.ParamValue(1, "pan", -1, -1, 1, D.Editor.StaticValue(-1), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-                    9, "Src", D.Authored.SquareOsc(),
+                    9, "Src", D.Authored.SquareOsc,
                     L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
                     L(), nil, nil, nil, true, nil
                 )),
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-                    10, "G1", D.Authored.GainNode(),
+                    10, "G1", D.Authored.GainNode,
                     L{D.Editor.ParamValue(0, "g", 0.8, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing)},
                     L(), nil, nil, nil, true, nil
                 )),
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-                    11, "G2", D.Authored.GainNode(),
+                    11, "G2", D.Authored.GainNode,
                     L{D.Editor.ParamValue(0, "g", 0.5, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing)},
                     L(), nil, nil, nil, true, nil
                 )),
@@ -251,8 +245,7 @@ do
         D.Authored.AssetBank(L(), L(), L(), L(), L())
     )
 
-    local ctx = {diagnostics = {}}
-    local kernel = project:lower(ctx):resolve(ctx):classify(ctx):schedule(ctx):compile(ctx)
+    local kernel = project:lower():resolve(960):classify():schedule():compile()
     local render = kernel:entry_fn()
     local out_l = terralib.new(float[FRAMES])
     local out_r = terralib.new(float[FRAMES])

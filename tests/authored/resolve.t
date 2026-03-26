@@ -1,10 +1,10 @@
 -- tests/authored/resolve.t
 -- Per-method tests for Authored -> Resolved resolve methods.
 
-local D = require("daw-unified")
-require("impl/init")
-local F = require("impl/_support/fallbacks")
-local L = F.L
+local DAW = require("daw")
+local D = DAW.types
+local List = require("terralist")
+local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
 local pass, fail = 0, 0
 local function check(c, m) if c then pass=pass+1 else fail=fail+1; print("  FAIL: "..m) end end
@@ -117,7 +117,7 @@ do
         10,
         L{D.Authored.GraphPort(1, "In", D.Authored.AudioHint, 1, false)},
         L{D.Authored.GraphPort(2, "Out", D.Authored.AudioHint, 1, false)},
-        L{D.Authored.Node(20, "Gain", D.Authored.GainNode(),
+        L{D.Authored.Node(20, "Gain", D.Authored.GainNode,
             L{D.Authored.Param(0, "g", 1, 0, 4, D.Authored.StaticValue(0.5), D.Authored.Replace, D.Authored.NoSmoothing)},
             L(), L(), L(), L(), true)},
         L(), L(),
@@ -139,7 +139,7 @@ do
         D.Authored.AudioInput(1, 0),
         D.Authored.Param(0, "vol", 1, 0, 4, D.Authored.StaticValue(0.7), D.Authored.Replace, D.Authored.NoSmoothing),
         D.Authored.Param(1, "pan", 0, -1, 1, D.Authored.StaticValue(0.3), D.Authored.Replace, D.Authored.NoSmoothing),
-        F.authored_graph(100),
+        D.Authored.Graph(100, L(), L(), L(), L(), L(), D.Authored.Serial, D.Authored.AudioDomain),
         L(), L(), L(),
         nil, nil, true, false, false, false, true
     )
@@ -155,13 +155,13 @@ end
 print("10. authored.node_kind.resolve")
 do
     local kinds = {
-        {D.Authored.GainNode(), 5},
-        {D.Authored.SineOsc(), 28},
-        {D.Authored.SawOsc(), 29},
-        {D.Authored.SquareOsc(), 30},
+        {D.Authored.GainNode, 5},
+        {D.Authored.SineOsc, 28},
+        {D.Authored.SawOsc, 29},
+        {D.Authored.SquareOsc, 30},
         {D.Authored.Clipper(D.Authored.HardClipM), 53},
-        {D.Authored.Wavefolder(), 52},
-        {D.Authored.CompressorNode(), 8},
+        {D.Authored.Wavefolder, 52},
+        {D.Authored.CompressorNode, 8},
     }
     for _, kp in ipairs(kinds) do
         local r = kp[1]:resolve()
@@ -191,7 +191,7 @@ do
         L{D.Authored.Track(1, "T1", 2, D.Authored.NoInput,
             D.Authored.Param(0, "v", 1, 0, 4, D.Authored.StaticValue(0.8), D.Authored.Replace, D.Authored.NoSmoothing),
             D.Authored.Param(1, "p", 0, -1, 1, D.Authored.StaticValue(0), D.Authored.Replace, D.Authored.NoSmoothing),
-            F.authored_graph(10),
+            D.Authored.Graph(10, L(), L(), L(), L(), L(), D.Authored.Serial, D.Authored.AudioDomain),
             L(), L(), L(), nil, nil, false, false, false, false, false)},
         L(), D.Authored.TempoMap(L{D.Authored.TempoPoint(0, 120)}, L()),
         D.Authored.AssetBank(L(), L(), L(), L(), L()))

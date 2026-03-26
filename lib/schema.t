@@ -2118,9 +2118,14 @@ local function install_inline_methods(schema_obj, schema_ast, schema_env, valida
         local ak = a.receiver_info and a.receiver_info.kind or ""
         local bk = b.receiver_info and b.receiver_info.kind or ""
         if ak ~= bk then
-            return ak ~= "variant"
+            if ak == "variant" then return false end
+            if bk == "variant" then return true end
+            return ak < bk
         end
-        return a.receiver < b.receiver
+        if a.receiver ~= b.receiver then
+            return a.receiver < b.receiver
+        end
+        return a.name < b.name
     end)
 
     for _, method in ipairs(methods_to_install) do

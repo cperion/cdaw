@@ -1,10 +1,10 @@
 -- tests/classify_schedule.t
 -- Integration checks across Authored -> Resolved -> Classified -> Scheduled.
 
-local D = require("daw-unified")
-require("impl/init")
-local F = require("impl/_support/fallbacks")
-local L = F.L
+local DAW = require("daw")
+local D = DAW.types
+local List = require("terralist")
+local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 local TICKS_PER_BEAT = 960
 
 local pass, fail = 0, 0
@@ -81,7 +81,7 @@ do
                 D.Editor.AutomationRef(D.Editor.AutoCurve(L{D.Editor.AutoPoint(0, 0.2), D.Editor.AutoPoint(1, 0.8)}, D.Editor.Linear)),
                 D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
-            D.Editor.DeviceChain(L{D.Editor.NativeDevice(D.Editor.NativeDeviceBody(9, "Square", D.Authored.SquareOsc(), L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))}),
+            D.Editor.DeviceChain(L{D.Editor.NativeDevice(D.Editor.NativeDeviceBody(9, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))}),
             L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()), D.Authored.AssetBank(L(), L(), L(), L(), L()))
     local classified = project:lower():resolve(TICKS_PER_BEAT):classify()
@@ -102,8 +102,8 @@ do
             D.Editor.ParamValue(0, "vol", 1, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
             D.Editor.DeviceChain(L{
-                D.Editor.NativeDevice(D.Editor.NativeDeviceBody(9, "Square", D.Authored.SquareOsc(), L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil)),
-                D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Gain", D.Authored.GainNode(), L{D.Editor.ParamValue(0, "gain", 0.5, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))
+                D.Editor.NativeDevice(D.Editor.NativeDeviceBody(9, "Square", D.Authored.SquareOsc, L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil)),
+                D.Editor.NativeDevice(D.Editor.NativeDeviceBody(10, "Gain", D.Authored.GainNode, L{D.Editor.ParamValue(0, "gain", 0.5, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing)}, L(), nil, nil, nil, true, nil))
             }),
             L(), L(), L(), nil, nil, false, false, false, false, false, nil)},
         L(), D.Editor.TempoMap(L{D.Editor.TempoPoint(0, 120)}, L()), D.Authored.AssetBank(L(), L(), L(), L(), L()))

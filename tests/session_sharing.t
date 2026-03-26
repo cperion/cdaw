@@ -1,10 +1,11 @@
 -- tests/session_sharing.t
 -- Structural sharing checks for app/session persistent edit helpers.
 
-local D = require("daw-unified")
+local DAW = require("daw")
+local D = DAW.types
 local session = require("app/session")
-local F = require("impl/_support/fallbacks")
-local L = F.L
+local List = require("terralist")
+local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
 local pass, fail = 0, 0
 local function check(cond, msg)
@@ -32,12 +33,12 @@ local function make_track(track_id, name, osc_id, gain_id)
         static_param(1, "pan", 0.0, -1, 1),
         D.Editor.DeviceChain(L{
             D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-                osc_id, name .. " Osc", D.Authored.SquareOsc(),
+                osc_id, name .. " Osc", D.Authored.SquareOsc,
                 L{static_param(0, "freq", 110, 1, 20000)},
                 L(), nil, nil, nil, true, nil
             )),
             D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-                gain_id, name .. " Gain", D.Authored.GainNode(),
+                gain_id, name .. " Gain", D.Authored.GainNode,
                 L{static_param(0, "gain", 0.5, 0, 4)},
                 L(), nil, nil, nil, true, nil
             ))

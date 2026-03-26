@@ -4,10 +4,10 @@
 -- Signal path: SquareOsc(very low freq) → GainNode(gain=0.75)
 -- → track volume(0.8) → center-pan OutputJob(equal-power) → master L/R
 
-local D = require("daw-unified")
-require("impl/init")
-local F = require("impl/_support/fallbacks")
-local L = F.L
+local DAW = require("daw")
+local D = DAW.types
+local List = require("terralist")
+local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 local TICKS_PER_BEAT = 960
 local C = terralib.includec("stdio.h")
 
@@ -58,12 +58,12 @@ local project = D.Editor.Project(
         D.Editor.ParamValue(1, "pan", 0, -1, 1, D.Editor.StaticValue(0), D.Editor.Replace, D.Editor.NoSmoothing),
         D.Editor.DeviceChain(L{
             D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-                9, "Square", D.Authored.SquareOsc(),
+                9, "Square", D.Authored.SquareOsc,
                 L{D.Editor.ParamValue(0, "freq", 100, 1, 20000, D.Editor.StaticValue(100), D.Editor.Replace, D.Editor.NoSmoothing)},
                 L(), nil, nil, nil, true, nil
             )),
             D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-                10, "Gain", D.Authored.GainNode(),
+                10, "Gain", D.Authored.GainNode,
                 L{D.Editor.ParamValue(0, "gain", 1, 0, 4, D.Editor.StaticValue(GAIN), D.Editor.Replace, D.Editor.NoSmoothing)},
                 L(), nil, nil, nil, true, nil
             ))

@@ -1,10 +1,10 @@
 -- tests/classified_slices.t
 -- Smoke test for new Classified -> Scheduled program surface.
 
-local D = require("daw-unified")
-require("impl/init")
-local F = require("impl/_support/fallbacks")
-local L = F.L
+local DAW = require("daw")
+local D = DAW.types
+local List = require("terralist")
+local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
 local pass, fail = 0, 0
 local function check(cond, msg)
@@ -33,7 +33,7 @@ do
         1,
         0
     )
-    local gp = gs:schedule(F.classified_transport(), F.classified_tempo_map())
+    local gp = gs:schedule(D.Classified.Transport(44100, 512, 120, 0, 4, 4, 0, false, 0, 0), D.Classified.TempoMap(L()))
     check(gp.graph.graph_id == 1, "graph id")
     check(#gp.node_programs == 1, "1 node program")
     check(#gp.literals == 1, "1 literal")
@@ -58,9 +58,9 @@ do
         L(),
         L(),
         L(),
-        F.classified_graph_slice(10)
+        D.Classified.GraphSlice(L{D.Classified.Graph(10, 0, 1, 0, 0, 0, 0, L(), 0, 0, 0, 0, 0, 0)}, L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), 0, 0)
     )
-    local tp = ts:schedule(F.classified_transport(), F.classified_tempo_map())
+    local tp = ts:schedule(D.Classified.Transport(44100, 512, 120, 0, 4, 4, 0, false, 0, 0), D.Classified.TempoMap(L()))
     check(tp.track.track_id == 1, "track id")
     check(#tp.mixer_params == 2, "2 mixer params")
     check(tp.device_graph.graph.graph_id == 10 or tp.device_graph.graph.graph_id == 0, "graph program present")
@@ -70,9 +70,9 @@ end
 print("3. Classified.Project:schedule -> Scheduled.Project(track_programs)")
 do
     local cp = D.Classified.Project(
-        F.classified_transport(),
-        F.classified_tempo_map(),
-        L{F.classified_track_slice(1, 2)},
+        D.Classified.Transport(44100, 512, 120, 0, 4, 4, 0, false, 0, 0),
+        D.Classified.TempoMap(L()),
+        L{D.Classified.TrackSlice(D.Classified.Track(1, 2, 0, 0, 0, D.Classified.Binding(0,0), D.Classified.Binding(0,0), 0, nil, nil, false, false, false, false), L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), D.Classified.GraphSlice(L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), L(), 0, 0))},
         L()
     )
     local sp = cp:schedule()

@@ -54,12 +54,11 @@ if arg and #arg >= 2 and arg[2] == "hidden" then
     hidden = true
 end
 
+local bootstrap = require("app/bootstrap")
 local terraui = require("lib/terraui")
 local bind = require("lib/bind")
 local plan = require("lib/plan")
 local compile = require("lib/compile")
-require("impl/init")
-local bootstrap = require("app/bootstrap")
 
 local sdl = terraui.sdl_gl_backend.new(font_path)
 local root_view = bootstrap.bootstrap_root()

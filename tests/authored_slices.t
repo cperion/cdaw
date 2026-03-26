@@ -1,10 +1,10 @@
 -- tests/authored_slices.t
 -- Smoke test for new Authored -> Resolved slice surface.
 
-local D = require("daw-unified")
-require("impl/init")
-local F = require("impl/_support/fallbacks")
-local L = F.L
+local DAW = require("daw")
+local D = DAW.types
+local List = require("terralist")
+local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
 local pass, fail = 0, 0
 local function check(cond, msg)
@@ -18,7 +18,7 @@ do
         D.Authored.NoInput,
         D.Authored.Param(0, "vol", 1, 0, 4, D.Authored.StaticValue(0.8), D.Authored.Replace, D.Authored.NoSmoothing),
         D.Authored.Param(1, "pan", 0, -1, 1, D.Authored.StaticValue(0), D.Authored.Replace, D.Authored.NoSmoothing),
-        F.authored_graph(10),
+        D.Authored.Graph(10, L(), L(), L(), L(), L(), D.Authored.Serial, D.Authored.AudioDomain),
         L(), L(), L(), nil, nil, false, false, false, false, false
     )
     local s = t:resolve(960)
@@ -39,7 +39,7 @@ do
             D.Authored.NoInput,
             D.Authored.Param(0, "vol", 1, 0, 4, D.Authored.StaticValue(0.8), D.Authored.Replace, D.Authored.NoSmoothing),
             D.Authored.Param(1, "pan", 0, -1, 1, D.Authored.StaticValue(0), D.Authored.Replace, D.Authored.NoSmoothing),
-            F.authored_graph(10),
+            D.Authored.Graph(10, L(), L(), L(), L(), L(), D.Authored.Serial, D.Authored.AudioDomain),
             L(), L(), L(), nil, nil, false, false, false, false, false
         )},
         L(),

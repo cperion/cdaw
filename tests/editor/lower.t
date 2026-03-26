@@ -1,10 +1,10 @@
 -- tests/editor/lower.t
 -- Per-method tests for all 14 Editor → Authored lower methods.
 
-local D = require("daw-unified")
-require("impl/init")
-local F = require("impl/_support/fallbacks")
-local L = F.L
+local DAW = require("daw")
+local D = DAW.types
+local List = require("terralist")
+local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
 local pass, fail = 0, 0
 local function check(c, m) if c then pass=pass+1 else fail=fail+1; print("  FAIL: "..m) end end
@@ -18,7 +18,7 @@ do
     local t = D.Editor.Transport(48000, 1024, 140, 0.1, 3, 8, D.Editor.Q1_4, true,
         D.Editor.TimeRange(2.0, 8.0))
     local ctx = {diagnostics = {}}
-    local r = t:lower(ctx)
+    local r = t:lower()
     check(r.sample_rate == 48000, "sample_rate=48000")
     check(r.buffer_size == 1024, "buffer_size=1024")
     check(r.bpm == 140, "bpm=140")
@@ -44,7 +44,7 @@ do
         L{D.Editor.SigPoint(0, 4, 4), D.Editor.SigPoint(8, 6, 8)}
     )
     local ctx = {diagnostics = {}}
-    local r = tm:lower(ctx)
+    local r = tm:lower()
     check(#r.tempo == 2, "2 tempo points")
     check(r.tempo[1].bpm == 120, "tempo[1] bpm=120")
     check(r.tempo[2].bpm == 90, "tempo[2] bpm=90")
@@ -61,7 +61,7 @@ do
     local pv = D.Editor.ParamValue(42, "cutoff", 1000, 20, 20000,
         D.Editor.StaticValue(5000), D.Editor.Replace, D.Editor.NoSmoothing)
     local ctx = {diagnostics = {}}
-    local r = pv:lower(ctx)
+    local r = pv:lower()
     check(r.id == 42, "id=42")
     check(r.name == "cutoff", "name=cutoff")
     check(r.default_value == 1000, "default=1000")
@@ -75,7 +75,7 @@ do
               D.Editor.AutoPoint(4, 1.0, D.Editor.Hold)},
             D.Editor.Linear)),
         D.Editor.Add, D.Editor.Lag(10))
-    local r2 = pv2:lower(ctx)
+    local r2 = pv2:lower()
     check(r2.id == 7, "auto id=7")
     print("  PASS")
 end
@@ -94,7 +94,7 @@ do
         L(), nil, nil, nil, true, nil
     ))
     local ctx = {diagnostics = {}, alloc_graph_id = function() return 100 end}
-    local r = dev:lower(ctx)
+    local r = dev:lower()
     check(r.id == 10, "node id=10")
     check(r.name == "EQ", "name=EQ")
     check(#r.params == 2, "2 params")
@@ -113,7 +113,7 @@ do
         L{D.Editor.Layer(1, "L1",
             D.Editor.DeviceChain(L{
                 D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-                    21, "G1", D.Authored.GainNode(),
+                    21, "G1", D.Authored.GainNode,
                     L{pv(0, "g", 0.5)}, L(), nil, nil, nil, true, nil))
             }),
             pv(0, "vol", 1), pv(1, "pan", 0), false, nil)},
@@ -122,7 +122,7 @@ do
     ))
     local gid = 200
     local ctx = {diagnostics = {}, alloc_graph_id = function() gid = gid + 1; return gid end}
-    local r = layer:lower(ctx)
+    local r = layer:lower()
     check(r.id == 20, "layer id=20")
     check(#r.child_graphs >= 1, "has child_graphs")
     print("  PASS")
@@ -141,7 +141,7 @@ do
     ))
     local gid = 300
     local ctx = {diagnostics = {}, alloc_graph_id = function() gid = gid + 1; return gid end}
-    local r = sel:lower(ctx)
+    local r = sel:lower()
     check(r.id == 30, "selector id=30")
     print("  PASS")
 end
@@ -153,17 +153,17 @@ print("7. editor.device_chain.lower")
 do
     local chain = D.Editor.DeviceChain(L{
         D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-            1, "A", D.Authored.GainNode(),
+            1, "A", D.Authored.GainNode,
             L{D.Editor.ParamValue(0, "g", 1, 0, 4, D.Editor.StaticValue(0.5), D.Editor.Replace, D.Editor.NoSmoothing)},
             L(), nil, nil, nil, true, nil)),
         D.Editor.NativeDevice(D.Editor.NativeDeviceBody(
-            2, "B", D.Authored.GainNode(),
+            2, "B", D.Authored.GainNode,
             L{D.Editor.ParamValue(0, "g", 1, 0, 4, D.Editor.StaticValue(0.8), D.Editor.Replace, D.Editor.NoSmoothing)},
             L(), nil, nil, nil, true, nil)),
     })
     local gid = 0
     local ctx = {diagnostics = {}, alloc_graph_id = function() gid = gid + 1; return gid end}
-    local r = chain:lower(ctx)
+    local r = chain:lower()
     check(r.layout.kind == "Serial", "layout=Serial")
     check(#r.nodes == 2, "2 nodes in chain")
     check(r.nodes[1].name == "A", "node[1]=A")
@@ -189,7 +189,7 @@ do
     )
     local gid = 0
     local ctx = {diagnostics = {}, alloc_graph_id = function() gid = gid + 1; return gid end}
-    local r = track:lower(ctx)
+    local r = track:lower()
     check(r.id == 42, "track id=42")
     check(r.name == "Lead", "name=Lead")
     check(r.channels == 2, "channels=2")
@@ -215,7 +215,7 @@ do
         D.Editor.FadeSpec(0.2, D.Editor.EqualPower)
     )
     local ctx = {diagnostics = {}}
-    local r = clip:lower(ctx)
+    local r = clip:lower()
     check(r.id == 7, "clip id=7")
     check(approx(r.start_beats, 1.0), "start=1.0")
     check(approx(r.duration_beats, 4.0), "dur=4.0")
@@ -255,7 +255,7 @@ do
         true
     )
     local ctx = {diagnostics = {}}
-    local r = slot:lower(ctx)
+    local r = slot:lower()
     check(r.slot_index == 3, "slot_index=3")
     check(r.enabled == true, "enabled")
     print("  PASS")
@@ -273,7 +273,7 @@ do
         150.0
     )
     local ctx = {diagnostics = {}}
-    local r = scene:lower(ctx)
+    local r = scene:lower()
     check(r.id == 5, "scene id=5")
     check(r.name == "Chorus", "name=Chorus")
     check(#r.slots == 2, "2 scene slots")
@@ -293,7 +293,7 @@ do
         true    -- enabled
     )
     local ctx = {diagnostics = {}}
-    local r = send:lower(ctx)
+    local r = send:lower()
     check(r.id == 8, "send id=8")
     check(r.target_track_id == 99, "target=99")
     check(r.pre_fader == true, "pre_fader")
@@ -311,7 +311,7 @@ do
         L{D.Editor.GridPort(1, "In", D.Editor.AudioHint, 1, false)},
         L{D.Editor.GridPort(2, "Out", D.Editor.AudioHint, 1, false)},
         L{D.Editor.GridModule(
-            50, "Osc", D.Authored.SineOsc(),
+            50, "Osc", D.Authored.SineOsc,
             L{D.Editor.ParamValue(0, "freq", 440, 20, 20000, D.Editor.StaticValue(440), D.Editor.Replace, D.Editor.NoSmoothing)},
             true, nil, nil, nil
         )},
@@ -321,7 +321,7 @@ do
     )
     local gid = 500
     local ctx = {diagnostics = {}, alloc_graph_id = function() gid = gid + 1; return gid end}
-    local r = gp:lower(ctx)
+    local r = gp:lower()
     check(r.layout.kind == "Free", "layout=Free")
     check(#r.nodes >= 1, "has nodes")
     check(#r.inputs >= 1, "has inputs")
@@ -342,7 +342,7 @@ do
         false, true
     )
     local ctx = {diagnostics = {}}
-    local r = mod:lower(ctx)
+    local r = mod:lower()
     check(r ~= nil, "produced ModSlot")
     check(r.per_voice == false, "per_voice=false")
     check(#r.routings >= 1, "has routings")
@@ -383,7 +383,7 @@ do
         D.Authored.AssetBank(L(), L(), L(), L(), L())
     )
     local ctx = {diagnostics = {}}
-    local r = project:lower(ctx)
+    local r = project:lower()
     check(r.name == "TestProject", "name")
     check(r.author == "Author", "author")
     check(#r.tracks == 1, "1 track")

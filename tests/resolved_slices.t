@@ -1,10 +1,10 @@
 -- tests/resolved_slices.t
 -- Smoke test for new Resolved -> Classified slice surface.
 
-local D = require("daw-unified")
-require("impl/init")
-local F = require("impl/_support/fallbacks")
-local L = F.L
+local DAW = require("daw")
+local D = DAW.types
+local List = require("terralist")
+local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
 local pass, fail = 0, 0
 local function check(cond, msg)
@@ -49,7 +49,7 @@ do
         L(),
         L(),
         L(),
-        F.resolved_graph_slice(10)
+        D.Resolved.GraphSlice(L{D.Resolved.Graph(10, 0, 1, 0, 0, 0, 0, L(), L(), 0, 0, 0, 0, 0, 0)}, L(), L(), L(), L(), L(), L(), L(), L())
     )
     local ct = ts:classify()
     check(ct.track.id == 1, "track id")
@@ -62,8 +62,8 @@ end
 print("3. Resolved.Project:classify -> Classified.Project(track_slices)")
 do
     local rp = D.Resolved.Project(
-        F.resolved_transport(),
-        F.resolved_tempo_map(),
+        D.Resolved.Transport(44100, 512, 120, 0, 4, 4, 0, false, 0, 0),
+        D.Resolved.TempoMap(L()),
         L{D.Resolved.TrackSlice(
             D.Resolved.Track(1, "T", 2, 0, 0, 0, 0, 1, 10, 0, 0, 0, 0, 0, 0, nil, nil, false, false, false, false, false),
             L{
@@ -74,10 +74,10 @@ do
             L(),
             L(),
             L(),
-            F.resolved_graph_slice(10)
+            D.Resolved.GraphSlice(L{D.Resolved.Graph(10, 0, 1, 0, 0, 0, 0, L(), L(), 0, 0, 0, 0, 0, 0)}, L(), L(), L(), L(), L(), L(), L(), L())
         )},
         L(),
-        F.resolved_asset_bank()
+        D.Resolved.AssetBank(L(), L(), L(), L(), L())
     )
     local cp = rp:classify()
     check(#cp.track_slices == 1, "1 track slice")
