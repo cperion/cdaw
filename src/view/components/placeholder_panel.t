@@ -7,12 +7,12 @@ local C = require("src/view/common")
 
 local M = {}
 
-local function as_scope(ctx, key)
-    if type(key) == "string" then return ctx.ui.scope(key) end
+local function as_scope(key)
+    if type(key) == "string" then return C.ui.scope(key) end
     return key
 end
 
-local function as_status(ctx, target_or_status)
+local function as_status(target_or_status)
     if target_or_status == nil then return { state = "ready" } end
     if type(target_or_status) == "string" then
         if target_or_status == "ready" or target_or_status == "pending" or target_or_status == "queued"
@@ -20,35 +20,34 @@ local function as_status(ctx, target_or_status)
             or target_or_status == "error" or target_or_status == "degraded" then
             return { state = target_or_status }
         end
-        return C.compile_status(ctx, target_or_status)
+        return C.compile_status(target_or_status)
     end
     if type(target_or_status) == "table" and (target_or_status.state ~= nil or target_or_status.detail ~= nil or target_or_status.label ~= nil) then
         return target_or_status
     end
-    return C.compile_status(ctx, target_or_status)
+    return C.compile_status(target_or_status)
 end
 
-function M.overlay_children(ctx, scope, target_or_status, children, text)
-    local status = as_status(ctx, target_or_status)
+function M.overlay_children(scope, target_or_status, children, text)
+    local status = as_status(target_or_status)
     if not C.compile_is_pending(status) and not C.compile_is_failed(status) then
         return children
     end
     C.push(children, M.surface_overlay(
-        ctx,
-        as_scope(ctx, scope):child("compile_overlay"),
+        as_scope(scope):child("compile_overlay"),
         status,
         text or status.detail
     ))
     return children
 end
 
-function M.wrap_node(ctx, scope, target_or_status, child, opts, text)
+function M.wrap_node(scope, target_or_status, child, opts, text)
     opts = opts or {}
-    local ui = ctx.ui
+    local ui = C.ui
     local children = { child }
-    M.overlay_children(ctx, scope, target_or_status, children, text)
+    M.overlay_children(scope, target_or_status, children, text)
     return ui.stack {
-        key = as_scope(ctx, scope),
+        key = as_scope(scope),
         width = opts.width or ui.grow(),
         height = opts.height or ui.fit(),
         background = opts.background,
@@ -57,10 +56,10 @@ function M.wrap_node(ctx, scope, target_or_status, child, opts, text)
     } (children)
 end
 
-function M.surface_overlay(ctx, key, status, text)
-    local ui = ctx.ui
-    local p = C.palette(ctx)
-    local scope = as_scope(ctx, key)
+function M.surface_overlay(key, status, text)
+    local ui = C.ui
+    local p = C.palette()
+    local scope = as_scope(key)
     local s = type(status) == "table" and status.state or status
     local label = text or C.compile_label(status)
     local bg = ui.rgba(0.149, 0.129, 0.094, 0.84)
@@ -87,7 +86,7 @@ function M.surface_overlay(ctx, key, status, text)
         z_index = 20,
         padding = { left = 0, top = 0, right = 0, bottom = 0 },
         background = bg,
-        border = C.border(ctx, border, 1),
+        border = C.border( border, 1),
         pointer_capture = ui.pointer_capture.passthrough,
     } {
         ui.column {
@@ -117,16 +116,16 @@ function M.surface_overlay(ctx, key, status, text)
     }
 end
 
-function M.fallback_node(ctx, key, title, detail)
-    local ui = ctx.ui
-    local p = C.palette(ctx)
+function M.fallback_node(key, title, detail)
+    local ui = C.ui
+    local p = C.palette()
     local scope = ui.scope(key)
     return ui.column {
         key = scope,
         width = ui.grow(),
         height = ui.grow(),
         background = p.surface_panel,
-        border = C.border(ctx, p.border_warning, 1),
+        border = C.border( p.border_warning, 1),
         padding = { left = 10, top = 10, right = 10, bottom = 10 },
         gap = 6,
     } {

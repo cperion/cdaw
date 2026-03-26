@@ -9,7 +9,8 @@ local compile_send_job = require("src/scheduled/compiler/send_job")
 local compile_mix_job = require("src/scheduled/compiler/mix_job")
 local compile_output_job = require("src/scheduled/compiler/output_job")
 
-return function(K)
+return function(types)
+local K = types.Kernel
     local function build_literal_values(literals)
         local values = {}
         for i = 1, #(literals or {}) do values[i] = literals[i].value end

@@ -1,7 +1,8 @@
 -- impl2/authored/param.t
 -- Authored.Param:resolve -> Resolved.Param
 
-return function(R)
+return function(types)
+local R = types.Resolved
     local combine_codes = { Replace = 0, Add = 1, Multiply = 2, ModMin = 3, ModMax = 4 }
     local smoothing_codes = { NoSmoothing = 0, Lag = 1 }
 

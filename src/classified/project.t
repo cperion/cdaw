@@ -4,7 +4,8 @@
 local List = require("terralist")
 local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
-return function(S)
+return function(types)
+local S = types.Scheduled
     local function to_list(tbl) local l = L(); for i = 1, #tbl do l:insert(tbl[i]) end; return l end
 
     local function make_state(literals_owner)

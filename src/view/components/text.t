@@ -6,44 +6,44 @@ local C = require("src/view/common")
 
 local M = {}
 
-function M.quiet_label(ctx, text, props)
+function M.quiet_label(text, props)
     props = props or {}
     props.text = text
-    props.text_color = props.text_color or C.palette(ctx).text_muted
+    props.text_color = props.text_color or C.palette().text_muted
     props.font_size = props.font_size or 11
-    return ctx.ui.label(props)
+    return C.ui.label(props)
 end
 
-function M.body_label(ctx, text, props)
+function M.body_label(text, props)
     props = props or {}
     props.text = text
-    props.text_color = props.text_color or C.palette(ctx).text_secondary
+    props.text_color = props.text_color or C.palette().text_secondary
     props.font_size = props.font_size or 11
-    return ctx.ui.label(props)
+    return C.ui.label(props)
 end
 
-function M.strong_label(ctx, text, props)
+function M.strong_label(text, props)
     props = props or {}
     props.text = text
-    props.text_color = props.text_color or C.palette(ctx).text_primary
+    props.text_color = props.text_color or C.palette().text_primary
     props.font_size = props.font_size or 12
-    return ctx.ui.label(props)
+    return C.ui.label(props)
 end
 
-function M.mono_label(ctx, text, props)
+function M.mono_label(text, props)
     props = props or {}
     props.text = text
-    props.text_color = props.text_color or C.palette(ctx).text_primary
+    props.text_color = props.text_color or C.palette().text_primary
     props.font_size = props.font_size or 13
-    return ctx.ui.label(props)
+    return C.ui.label(props)
 end
 
-function M.section_title(ctx, text, scope)
-    return ctx.ui.label {
+function M.section_title(text, scope)
+    return C.ui.label {
         key = scope,
         text = text,
         font_size = 10,
-        text_color = C.palette(ctx).text_muted,
+        text_color = C.palette().text_muted,
     }
 end
 

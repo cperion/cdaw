@@ -14,8 +14,8 @@ local function mode_defaults(active_surface)
     return 1, 0, 0
 end
 
-function M.lower(self, ctx)
-    local ui = ctx.ui
+function M.render(self)
+    local ui = C.ui
     local status_bar = self.shell and self.shell.status_bar or nil
     local status_left = status_bar and status_bar.left_text or "shell online"
     local status_center = status_bar and status_bar.center_text or "Bitwig-like shell grammar: Arrange / Mix / Edit"
@@ -31,8 +31,13 @@ function M.lower(self, ctx)
     )
     return ui.component("terra_daw") {
         params = params,
-        root = shell_view.lower(self.shell, ctx),
+        root = shell_view.render(self.shell),
     }
+end
+
+function M.lower(self)
+    C.begin_lower(self)
+    return M.render(self)
 end
 
 return M

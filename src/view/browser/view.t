@@ -11,27 +11,27 @@ local section = require("src/view/browser/section")
 
 local M = {}
 
-local function lower(self, ctx)
-        local ui = ctx.ui
-        local p = C.palette(ctx)
-        local scope = C.make_scope(ctx, self.identity, "browser")
+local function lower(self)
+        local ui = C.ui
+        local p = C.palette()
+        local scope = C.make_scope(self.identity, "browser")
 
         local source_children = {}
         for i = 1, #self.sources do
             local src = self.sources[i]
             local cmd = C.find_command(src.commands, "BCCSelectSource")
-            local src_scope = C.make_scope(ctx, src.identity, C.identity_key(src.identity))
-            local src_node = B.flat_button(ctx, src.label, cmd and cmd.action_id or nil, {
+            local src_scope = C.make_scope(src.identity, C.identity_key(src.identity))
+            local src_node = B.flat_button(src.label, cmd and cmd.action_id or nil, {
                 key = src_scope:child("base"),
                 width = ui.grow(),
                 height = ui.fixed(22),
                 padding = { left = 6, top = 0, right = 6, bottom = 0 },
                 background = src.selected and p.surface_selected or p.surface_inset,
-                border = C.border(ctx, src.selected and p.border_selected or p.border_subtle, 1),
+                border = C.border( src.selected and p.border_selected or p.border_subtle, 1),
                 text_color = p.text_primary,
                 font_size = 11,
             })
-            C.push(source_children, P.wrap_node(ctx, src_scope, src.identity, src_node, {
+            C.push(source_children, P.wrap_node(src_scope, src.identity, src_node, {
                 width = ui.grow(),
                 height = ui.fixed(22),
             }))
@@ -39,11 +39,11 @@ local function lower(self, ctx)
 
         local section_children = {}
         for i = 1, #self.sections do
-            C.push(section_children, section.lower(self.sections[i], ctx, scope, i))
+            C.push(section_children, section.lower(self.sections[i], scope, i))
         end
 
         local children = {
-            T.section_title(ctx, "EVERYTHING", scope:child("title")),
+            T.section_title("EVERYTHING", scope:child("title")),
             ui.label {
                 key = scope:child("query"),
                 width = ui.grow(),
@@ -51,7 +51,7 @@ local function lower(self, ctx)
                 padding = { left = 6, top = 0, right = 6, bottom = 0 },
                 text = self.query or "Everything",
                 background = p.surface_inset,
-                border = C.border(ctx, p.border_control, 1),
+                border = C.border( p.border_control, 1),
                 text_color = p.text_muted,
                 font_size = 11,
             },
@@ -68,7 +68,7 @@ local function lower(self, ctx)
                 vertical = true,
             } (section_children),
         }
-        P.overlay_children(ctx, scope, self.identity, children)
+        P.overlay_children(scope, self.identity, children)
 
         return ui.column {
             key = scope,
@@ -83,7 +83,10 @@ local function lower(self, ctx)
 end
 
 
-M.lower = lower
+M.render = lower
 
 
+function M.lower(self)
+    return M.render(self)
+end
 return M

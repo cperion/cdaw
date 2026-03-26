@@ -10,18 +10,18 @@ local tab_view = require("src/view/inspector/tab_view")
 
 local M = {}
 
-local function lower(self, ctx)
-        local ui = ctx.ui
-        local p = C.palette(ctx)
-        local scope = C.make_scope(ctx, self.identity, "inspector")
+local function lower(self)
+        local ui = C.ui
+        local p = C.palette()
+        local scope = C.make_scope(self.identity, "inspector")
         local tab_children = {}
         local content_children = {}
 
         for i = 1, #self.tabs do
             local tab = self.tabs[i]
-            C.push(tab_children, tab_view.lower_button(tab, ctx, i == 1))
+            C.push(tab_children, tab_view.lower_button(tab, i == 1))
             if i == 1 then
-                local active_children = tab_view.lower_content(tab, ctx, scope)
+                local active_children = tab_view.lower_content(tab, scope)
                 for j = 1, #active_children do
                     C.push(content_children, active_children[j])
                 end
@@ -29,7 +29,7 @@ local function lower(self, ctx)
         end
 
         local children = {
-            T.section_title(ctx, "INSPECTOR", scope:child("title")),
+            T.section_title("INSPECTOR", scope:child("title")),
             ui.row {
                 key = scope:child("tabs"),
                 width = ui.grow(),
@@ -43,7 +43,7 @@ local function lower(self, ctx)
                 vertical = true,
             } (content_children),
         }
-        P.overlay_children(ctx, scope, self.identity, children)
+        P.overlay_children(scope, self.identity, children)
 
         return ui.column {
             key = scope,
@@ -58,7 +58,10 @@ local function lower(self, ctx)
 end
 
 
-M.lower = lower
+M.render = lower
 
 
+function M.lower(self)
+    return M.render(self)
+end
 return M

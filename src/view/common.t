@@ -1,33 +1,18 @@
--- impl/view/common.t
+-- src/view/common.t
 -- Shared helpers for View -> TerraUI lowering.
+-- ui and palette are module-level singletons — no ctx needed.
 
 local List = require("terralist")
+local DSL = require("terraui/lib/dsl")
 
 local M = {}
 
-function M.new_view_ctx(opts)
-    opts = opts or {}
-    local ui = opts.ui
-    if ui == nil then
-        local DSL = require("terraui/lib/dsl")
-        ui = DSL.dsl()
-    end
-    return {
-        ui = ui,
-        palette = opts.palette or M.make_palette(ui),
-        diagnostics = opts.diagnostics or {},
-        selection = opts.selection,
-        active_surface = opts.active_surface,
-        dynamic_status_params = opts.dynamic_status_params == true,
-        session_compile_pending = opts.session_compile_pending,
-        session_compile_detail = opts.session_compile_detail,
-        compile_status_by_ref = opts.compile_status_by_ref,
-        track_names = opts.track_names,
-        device_names = opts.device_names,
-        param_names = opts.param_names,
-        clip_layout = opts.clip_layout,
-    }
-end
+-- Module-level singletons: created once, used everywhere.
+-- No ctx needed — ui and palette are infrastructure, not data.
+M.ui = DSL.dsl()
+M.p = nil  -- lazy-initialized below, after make_palette is defined
+
+-- new_view_ctx is eliminated. Use C.begin_lower(root) + module-level state.
 
 function M.push(t, v)
     t[#t + 1] = v
@@ -62,10 +47,50 @@ function M.find_command(commands, wanted_kind, pred)
     return nil
 end
 
-function M.record_diag(ctx, severity, code, message)
-    if ctx == nil then return end
-    ctx.diagnostics = ctx.diagnostics or {}
-    M.push(ctx.diagnostics, {
+-- Module-level state set once per lower cycle by Root:lower().
+-- No ctx passing — views read these directly.
+M.diagnostics = {}
+M.selection = nil          -- View.Selection
+M.active_surface = nil     -- View.ActiveSurface
+M._track_names = nil       -- {[track_id] = name}
+M._device_names = nil      -- {[device_id] = name}
+M._param_names = nil       -- {[encoded_ref] = name}
+M._clip_layout = nil       -- {[clip_id] = {x,y,w,h}}
+M._compile_status = nil    -- {[key] = {status,detail}}
+M._compile_pending = false
+M._compile_detail = nil
+M._dynamic_status = false
+
+function M.begin_lower(root)
+    -- Called once by Root:lower() to set module-level state from ASDL.
+    M.diagnostics = {}
+    M.selection = root.focus and root.focus.selection or nil
+    M.active_surface = root.focus and root.focus.active_surface or nil
+
+    local vd = root.view_data
+    M._track_names = {}
+    M._device_names = {}
+    M._param_names = {}
+    M._clip_layout = {}
+    M._compile_status = {}
+    M._compile_pending = false
+    M._compile_detail = nil
+    M._dynamic_status = false
+
+    if vd then
+        for _, e in ipairs(vd.track_names) do M._track_names[e.key] = e.name end
+        for _, e in ipairs(vd.device_names) do M._device_names[e.key] = e.name end
+        for _, e in ipairs(vd.param_names) do M._param_names[e.key] = e.name end
+        for _, e in ipairs(vd.clip_layout) do M._clip_layout[e.clip_id] = e end
+        for _, e in ipairs(vd.compile_status) do M._compile_status[e.key] = e end
+        M._compile_pending = vd.compile_pending
+        M._compile_detail = vd.compile_detail
+        M._dynamic_status = vd.dynamic_status_params
+    end
+end
+
+function M.record_diag(severity, code, message)
+    M.push(M.diagnostics, {
         phase = "view",
         severity = severity,
         code = code,
@@ -162,17 +187,17 @@ function M.identity_key(identity)
     return tostring(identity.key_space) .. "/" .. encoded
 end
 
-function M.make_scope(ctx, identity, fallback_key)
-    return ctx.ui.scope(identity and M.identity_key(identity) or fallback_key)
+function M.make_scope(identity, fallback_key)
+    return M.ui.scope(identity and M.identity_key(identity) or fallback_key)
 end
 
-function M.palette(ctx)
-    return ctx.palette
+function M.palette()
+    return M.p
 end
 
-function M.border(ctx, color, strength)
+function M.border(color, strength)
     strength = strength or 1
-    return ctx.ui.border {
+    return M.ui.border {
         left = strength,
         top = strength,
         right = strength,
@@ -181,31 +206,31 @@ function M.border(ctx, color, strength)
     }
 end
 
-function M.panel(ctx, props)
+function M.panel(props)
     props = props or {}
-    local p = M.palette(ctx)
+    local p = M.palette()
     props.background = props.background or p.surface_panel
-    props.border = props.border or M.border(ctx, p.border_subtle, 1)
+    props.border = props.border or M.border(p.border_subtle, 1)
     props.padding = props.padding or { left = 8, top = 6, right = 8, bottom = 6 }
     props.gap = props.gap or 6
     return props
 end
 
-function M.track_name(ctx, track_ref)
-    return (ctx.track_names and ctx.track_names[track_ref.track_id]) or ("Track " .. tostring(track_ref.track_id))
+function M.track_name(track_ref)
+    return (M._track_names[track_ref.track_id]) or ("Track " .. tostring(track_ref.track_id))
 end
 
-function M.clip_layout(ctx, clip_ref)
-    return ctx.clip_layout and ctx.clip_layout[clip_ref.clip_id]
+function M.clip_layout_for(clip_ref)
+    return M._clip_layout[clip_ref.clip_id]
 end
 
-function M.clip_label(ctx, clip_ref)
-    local info = M.clip_layout(ctx, clip_ref)
+function M.clip_label(clip_ref)
+    local info = M.clip_layout_for(clip_ref)
     return (info and info.label) or ("Clip " .. tostring(clip_ref.clip_id))
 end
 
-function M.device_name(ctx, device_ref)
-    return (ctx.device_names and ctx.device_names[device_ref.device_id]) or ("Device " .. tostring(device_ref.device_id))
+function M.device_name(device_ref)
+    return (M._device_names[device_ref.device_id]) or ("Device " .. tostring(device_ref.device_id))
 end
 
 function M.semantic_ref_eq(a, b)
@@ -293,26 +318,26 @@ function M.compile_target_key(target)
     return tostring(target)
 end
 
-function M.compile_status(ctx, target)
+function M.compile_status(target)
     local key = M.compile_target_key(target)
     local raw = nil
 
-    if ctx and ctx.compile_status_by_ref and key ~= nil then
-        raw = ctx.compile_status_by_ref[key]
+    if key ~= nil then
+        raw = M._compile_status[key]
     end
 
-    if raw == nil and key == "project" and ctx and ctx.session_compile_pending then
+    if raw == nil and key == "project" and M._compile_pending then
         raw = {
             state = "compiling",
-            detail = ctx.session_compile_detail or "Compiling audio callback…",
+            detail = M._compile_detail or "Compiling audio callback…",
         }
     end
 
     return normalize_compile_status(raw)
 end
 
-function M.compile_state(ctx, target)
-    return M.compile_status(ctx, target).state
+function M.compile_state(target)
+    return M.compile_status(target).state
 end
 
 function M.compile_is_pending(status)
@@ -334,8 +359,8 @@ function M.compile_label(status)
     return string.upper(tostring(s))
 end
 
-function M.surface_mode(ctx)
-    local active = ctx and ctx.active_surface
+function M.surface_mode()
+    local active = M.active_surface
     if active == nil then return "arrange" end
     if active.kind == "MixerSurface" then return "mix" end
     if active.kind == "PianoRollSurface" then return "edit" end
@@ -411,5 +436,8 @@ function M.make_palette(ui)
         state_ready   = ui.rgba(0.341, 0.820, 0.478, 1.0),
     }
 end
+
+-- Initialize palette singleton now that make_palette is defined.
+M.p = M.make_palette(M.ui)
 
 return M

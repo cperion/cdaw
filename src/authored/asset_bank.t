@@ -4,7 +4,8 @@
 local List = require("terralist")
 local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
-return function(R)
+return function(types)
+local R = types.Resolved
     local loop_mode_codes = { NoLoop = 0, LoopFwd = 1, LoopPingPong = 2, LoopRev = 3 }
 
     return function(self, ticks_per_beat)

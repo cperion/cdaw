@@ -34,7 +34,9 @@ local function default_note_asset_id(region)
     return acc
 end
 
-return function(A, maps)
+return function(types)
+local A = types.Authored
+local maps = require('src/support/enum_maps')(types.Editor, types.Authored)
     local function lower_note_region(self)
         local asset_id = default_note_asset_id(self)
         local notes = L()

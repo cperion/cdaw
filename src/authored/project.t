@@ -4,7 +4,8 @@
 local List = require("terralist")
 local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
-return function(R)
+return function(types)
+local R = types.Resolved
     return function(self, ticks_per_beat)
         local sample_rate = (self.transport and self.transport.sample_rate) or 44100
         local transport = self.transport:resolve(ticks_per_beat)

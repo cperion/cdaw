@@ -12,11 +12,11 @@ local M = {}
 
 -- ── Helper: lower a single module view ──
 
-local function lower_module(mod, ctx)
-    local ui = ctx.ui
-    local p = C.palette(ctx)
-    local mscope = C.make_scope(ctx, mod.identity, C.identity_key(mod.identity))
-    local compile_status = C.compile_status(ctx, mod.module_ref or mod.identity)
+local function lower_module(mod)
+    local ui = C.ui
+    local p = C.palette()
+    local mscope = C.make_scope(mod.identity, C.identity_key(mod.identity))
+    local compile_status = C.compile_status(mod.module_ref or mod.identity)
     local compile_pending = C.compile_is_pending(compile_status)
     local compile_failed = C.compile_is_failed(compile_status)
 
@@ -45,7 +45,7 @@ local function lower_module(mod, ctx)
                         height = ui.fixed(6),
                         background = p.track_accent,
                     } {},
-                    T.quiet_label(ctx, "in " .. tostring(a.port_id or i), {
+                    T.quiet_label("in " .. tostring(a.port_id or i), {
                         key = mscope:child("in_lbl_" .. tostring(a.port_id or i)),
                         font_size = 9,
                         width = ui.grow(),
@@ -58,7 +58,7 @@ local function lower_module(mod, ctx)
                     height = ui.fixed(14),
                     align_y = ui.align_y.center,
                 } {
-                    T.quiet_label(ctx, "out " .. tostring(a.port_id or i), {
+                    T.quiet_label("out " .. tostring(a.port_id or i), {
                         key = mscope:child("out_lbl_" .. tostring(a.port_id or i)),
                         font_size = 9,
                         width = ui.grow(),
@@ -75,7 +75,7 @@ local function lower_module(mod, ctx)
     end
 
     local card_children = {
-        T.strong_label(ctx, name, {
+        T.strong_label(name, {
             key = mscope:child("title"),
             width = ui.grow(),
             font_size = 11,
@@ -90,14 +90,12 @@ local function lower_module(mod, ctx)
 
     if compile_failed then
         C.push(card_children, P.surface_overlay(
-            ctx,
             mscope:child("failed_overlay"),
             compile_status,
             compile_status.detail or "Module unavailable"
         ))
     elseif compile_pending then
         C.push(card_children, P.surface_overlay(
-            ctx,
             mscope:child("pending_overlay"),
             compile_status,
             compile_status.detail or "Compiling…"
@@ -112,16 +110,16 @@ local function lower_module(mod, ctx)
         gap = 2,
         padding = { left = 6, top = 6, right = 6, bottom = 6 },
         background = p.surface_device,
-        border = C.border(ctx, compile_pending and p.border_pending or (compile_failed and p.border_warning or p.border_authored), 1),
+        border = C.border( compile_pending and p.border_pending or (compile_failed and p.border_warning or p.border_authored), 1),
     } (card_children)
 end
 
 -- ── Helper: lower cable decoration (visual indicator) ──
 
-local function lower_cable(cable, ctx, index)
-    local ui = ctx.ui
-    local p = C.palette(ctx)
-    local cscope = C.make_scope(ctx, cable.identity, C.identity_key(cable.identity))
+local function lower_cable(cable, index)
+    local ui = C.ui
+    local p = C.palette()
+    local cscope = C.make_scope(cable.identity, C.identity_key(cable.identity))
 
     local from_label = "?"
     if cable.from_module_ref and cable.from_module_ref.module_id then
@@ -140,25 +138,25 @@ local function lower_cable(cable, ctx, index)
         align_y = ui.align_y.center,
         padding = { left = 6, top = 0, right = 6, bottom = 0 },
     } {
-        T.quiet_label(ctx, from_label, {
+        T.quiet_label(from_label, {
             key = cscope:child("from"),
             font_size = 9,
             width = ui.fit(),
             text_color = p.track_accent,
         }),
-        T.quiet_label(ctx, "→", {
+        T.quiet_label("→", {
             key = cscope:child("arrow"),
             font_size = 9,
             width = ui.fit(),
         }),
-        T.quiet_label(ctx, to_label, {
+        T.quiet_label(to_label, {
             key = cscope:child("to"),
             font_size = 9,
             width = ui.fit(),
             text_color = p.track_accent,
         }),
     }
-    return P.wrap_node(ctx, cscope, cable.identity, row, {
+    return P.wrap_node(cscope, cable.identity, row, {
         width = ui.grow(),
         height = ui.fixed(16),
     })
@@ -169,21 +167,21 @@ end
 -- GridPatchView:to_decl
 -- ═══════════════════════════════════════════════════════════════════════
 
-local function lower(self, ctx)
-        local ui = ctx.ui
-        local p = C.palette(ctx)
-        local scope = C.make_scope(ctx, self.identity, C.identity_key(self.identity))
+local function lower(self)
+        local ui = C.ui
+        local p = C.palette()
+        local scope = C.make_scope(self.identity, C.identity_key(self.identity))
 
         -- Module cards
         local module_children = {}
         for i = 1, #self.modules do
-            C.push(module_children, lower_module(self.modules[i], ctx))
+            C.push(module_children, lower_module(self.modules[i]))
         end
 
         -- Cable indicators
         local cable_children = {}
         for i = 1, #self.cables do
-            C.push(cable_children, lower_cable(self.cables[i], ctx, i))
+            C.push(cable_children, lower_cable(self.cables[i], i))
         end
 
         -- Add module button
@@ -197,15 +195,15 @@ local function lower(self, ctx)
                 height = ui.fixed(22),
                 align_y = ui.align_y.center,
             } {
-                T.section_title(ctx, "GRID PATCH", scope:child("title")),
+                T.section_title("GRID PATCH", scope:child("title")),
                 ui.spacer { key = scope:child("hgap"), width = ui.grow(), height = ui.fixed(0) },
-                B.flat_button(ctx, "+ Module", add_cmd and add_cmd.action_id or nil, {
+                B.flat_button("+ Module", add_cmd and add_cmd.action_id or nil, {
                     key = scope:child("add"),
                     width = ui.fixed(80),
                     height = ui.fixed(20),
                     font_size = 10,
                     background = p.surface_accent_soft,
-                    border = C.border(ctx, p.border_focus, 1),
+                    border = C.border( p.border_focus, 1),
                 }),
             },
             -- Scrollable canvas with modules
@@ -237,7 +235,7 @@ local function lower(self, ctx)
                         height = ui.fit(),
                         gap = 1,
                         background = p.surface_inset,
-                        border = C.border(ctx, p.border_subtle, 1),
+                        border = C.border( p.border_subtle, 1),
                         padding = { left = 4, top = 4, right = 4, bottom = 4 },
                     } (cable_children) or ui.spacer {
                         key = scope:child("no_cables"),
@@ -248,7 +246,7 @@ local function lower(self, ctx)
             },
         }
 
-        P.overlay_children(ctx, scope, self.device_ref or self.identity, patch_children)
+        P.overlay_children(scope, self.device_ref or self.identity, patch_children)
 
         return ui.column {
             key = scope,
@@ -263,7 +261,10 @@ local function lower(self, ctx)
 end
 
 
-M.lower = lower
+M.render = lower
 
 
+function M.lower(self)
+    return M.render(self)
+end
 return M

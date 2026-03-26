@@ -63,14 +63,14 @@ local compile = require("lib/compile")
 local sdl = terraui.sdl_gl_backend.new(font_path)
 local root_view = bootstrap.bootstrap_root()
 
-local decl = root_view:to_decl()
+local decl = root_view:lower()
 
 local bound = bind.bind_component(decl, { text_backend = sdl.text_backend })
 local planned = plan.plan_component(bound)
 local kernel = compile.compile_component(planned, { text_backend = sdl.text_backend })
 local Frame = kernel:frame_type()
 local init_q = kernel.init_fn
-local run_q = kernel.run_fn
+local run_q = kernel.fn
 
 local max_packets = #planned.paints + #planned.texts + #planned.images + (#planned.clips * 2) + #planned.customs
 if max_packets < 1 then max_packets = 1 end

@@ -63,15 +63,6 @@ print("")
 local proj = make_project(440, 0.3, 0.8)
 local s = session.new(proj)
 
-print("Compiling pipeline...")
-s:compile()
-print("  ✓ Compiled render function")
-
-print("Opening SDL audio...")
-s:open_audio()
-print("  ✓ Audio device opened (44100 Hz, 512 frames, stereo float32)")
-
-print("")
 print("Starting playback...")
 s:play()
 print("  ♪ Playing: SineOsc(440 Hz) → Gain(0.3) → Volume(0.8)")

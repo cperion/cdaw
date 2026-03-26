@@ -5,7 +5,8 @@ local compile_binding_value = require("src/scheduled/compiler/binding")
 local List = require("terralist")
 local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
-return function(K)
+return function(types)
+local K = types.Kernel
     local function scan_binding(binding, counts)
         if not binding then return end
         local rc = binding.rate_class

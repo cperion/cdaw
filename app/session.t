@@ -291,43 +291,35 @@ function M.new(editor_project, opts)
 
     local s = {
         project = editor_project,
-        render_fn = nil,
         audio = nil,
         _undo_stack = {},
         _redo_stack = {},
-        compiled = false,
     }
 
-    -- ── Compile the full pipeline ──
-    function s:compile()
-        local authored = self.project:lower()
-        local resolved = authored:resolve(TICKS_PER_BEAT)
-        local classified = resolved:classify()
-        local scheduled = classified:schedule()
-        local kernel = scheduled:compile()
-        self.render_fn = kernel:entry_fn()
-        self.compiled = true
-        self._last_diagnostics = {}
-
-        if self.audio then
-            self.audio:set_render_fn(self.render_fn)
-        end
-
-        return self
+    -- ── Render function: lazy pipeline, fully memoized ──
+    -- No explicit compile step. Each phase memoizes on its input.
+    -- Unchanged subtrees are instant cache hits at every level.
+    function s:render_fn()
+        return self.project
+            :lower()
+            :resolve(TICKS_PER_BEAT)
+            :classify()
+            :schedule()
+            :compile()
+            :entry_fn()
     end
 
     -- ── Audio control ──
     function s:open_audio()
         self.audio = audio.open(sample_rate, buffer_size)
-        if self.render_fn then
-            self.audio:set_render_fn(self.render_fn)
-        end
+        -- One thunk, set once. The audio loop resolves it each push.
+        -- Mutations change self.project; render_fn() picks it up via memoize.
+        self.audio:set_render_thunk(function() return self:render_fn() end)
         return self
     end
 
     function s:play()
         if not self.audio then self:open_audio() end
-        if not self.compiled then self:compile() end
         self.audio:start()
         return self
     end
@@ -343,17 +335,19 @@ function M.new(editor_project, opts)
     end
 
     -- ── Editor mutations ──
-    -- Push current state to undo stack, apply mutation, recompile.
+    -- Push current state to undo stack, apply mutation.
+    -- No recompile call — render_fn() is lazy and memoized.
+    -- ── Editor mutations ──
+    -- Just swap the project. The audio thunk resolves render_fn() lazily.
+    -- Memoize makes unchanged pipeline steps instant cache hits.
     function s:mutate(fn)
         local next_project = fn(self.project)
         if next_project == nil or next_project == self.project then
             return self
         end
-
         table.insert(self._undo_stack, self.project)
         self._redo_stack = {}
         self.project = next_project
-        self:compile()
         return self
     end
 
@@ -361,7 +355,6 @@ function M.new(editor_project, opts)
         if #self._undo_stack == 0 then return self end
         table.insert(self._redo_stack, self.project)
         self.project = table.remove(self._undo_stack)
-        self:compile()
         return self
     end
 
@@ -369,7 +362,6 @@ function M.new(editor_project, opts)
         if #self._redo_stack == 0 then return self end
         table.insert(self._undo_stack, self.project)
         self.project = table.remove(self._redo_stack)
-        self:compile()
         return self
     end
 

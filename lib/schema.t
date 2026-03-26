@@ -607,6 +607,53 @@ local function parse_hooks(lex)
     return decl
 end
 
+local function parse_product(lex, phase)
+    -- product is like record but:
+    --   1. must have fn: TerraFunc/TerraQuote and state_t: TerraType fields
+    --   2. always unique (compile products are identity-comparable for memoize)
+    --   3. may have additional fields
+    local line = current_line(lex)
+    local doc = attached_doc_comment(lex)
+    lex:expect("product")
+    local decl = {
+        kind = "record",
+        line = line,
+        doc = doc,
+        name = parse_name(lex),
+        fields = {},
+        unique = true,
+        is_product = true,
+    }
+    if phase.type_names[decl.name] then
+        lex:error(("duplicate type name '%s' in phase '%s'"):format(decl.name, phase.name))
+    end
+    phase.type_names[decl.name] = true
+
+    while not lex:matches("end") do
+        if next_name_value(lex, "doc") then
+            decl.doc = parse_doc_value(lex)
+        else
+            push(decl.fields, parse_field(lex))
+        end
+    end
+    lex:expect("end")
+
+    -- Validate: must have fn and state_t fields
+    local has_fn, has_state = false, false
+    for _, f in ipairs(decl.fields) do
+        if f.name == "fn" then has_fn = true end
+        if f.name == "state_t" then has_state = true end
+    end
+    if not has_fn then
+        lex:error(("product '%s' must have a 'fn' field"):format(decl.name))
+    end
+    if not has_state then
+        lex:error(("product '%s' must have a 'state_t' field"):format(decl.name))
+    end
+
+    return decl
+end
+
 local function parse_phase(lex, schema)
     local line = current_line(lex)
     local doc = attached_doc_comment(lex)
@@ -618,11 +665,24 @@ local function parse_phase(lex, schema)
         name = parse_name(lex),
         decls = {},
         type_names = {},
+        transition = nil,
+        products = {},
     }
     if schema.phase_names[phase.name] then
         lex:error(("duplicate phase '%s'"):format(phase.name))
     end
     schema.phase_names[phase.name] = true
+
+    -- Optional transition: to TargetPhase via method_name
+    if lex:nextif("to") then
+        phase.transition = {
+            target = parse_name(lex),
+            method = nil,
+        }
+        if lex:nextif("via") then
+            phase.transition.method = parse_name(lex)
+        end
+    end
 
     while not lex:matches("end") do
         if next_name_value(lex, "doc") then
@@ -635,8 +695,10 @@ local function parse_phase(lex, schema)
             push(phase.decls, parse_flags(lex, phase))
         elseif lex:matches("methods") then
             push(phase.decls, parse_methods(lex, phase))
+        elseif lex:matches("product") then
+            push(phase.decls, parse_product(lex, phase))
         else
-            lex:error(("expected doc, record, enum, flags, methods, or end in phase '%s'"):format(phase.name))
+            lex:error(("expected doc, record, enum, flags, methods, product, or end in phase '%s'"):format(phase.name))
         end
     end
     lex:expect("end")
@@ -1494,6 +1556,41 @@ local function validate_schema(schema)
         end
     end
 
+    -- Validate phase transitions: if phase declares -> Target via method_name,
+    -- verify all cross-phase methods from this phase use that method name,
+    -- and the target phase exists.
+    for _, phase in ipairs(schema.phases) do
+        if phase.transition then
+            local target_found = false
+            for _, p in ipairs(schema.phases) do
+                if p.name == phase.transition.target then target_found = true; break end
+            end
+            if not target_found then
+                return ("phase '%s' declares transition to unknown phase '%s'"):format(
+                    phase.name, phase.transition.target)
+            end
+            if phase.transition.method then
+                for _, decl in ipairs(phase.decls) do
+                    if decl.kind == "methods" then
+                        for _, item in ipairs(decl.items) do
+                            local return_type = resolve_type_ref(item.return_type, phase.name, extern_lookup)
+                            local return_info = type_index[return_type]
+                            if return_info and return_info.phase == phase.transition.target then
+                                if item.name ~= phase.transition.method then
+                                    return ("method '%s:%s' in phase '%s' returns '%s' (phase '%s') but the declared transition method is '%s'"):format(
+                                        item.receiver, item.name, phase.name, return_type, phase.transition.target, phase.transition.method)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Product types are validated at parse time (fn + state_t fields required).
+        -- No additional validation needed here.
+    end
+
     return nil, {
         type_index = type_index,
         phase_order = phase_order,
@@ -2132,6 +2229,35 @@ local function install_inline_methods(schema_obj, schema_ast, schema_env, valida
         local impl = method.impl and method.impl(schema_env) or nil
         local fallback = method.fallback and method.fallback(schema_env) or nil
 
+        -- impl = "path/to/module" → require(path), call factory(types) if needed,
+        -- then: if function → use directly; if table → look up method name or "boundary"
+        if type(impl) == "string" then
+            local mod_path = impl
+            local mod = require(mod_path)
+            if type(mod) == "function" then
+                mod = mod(schema_obj.types)
+            end
+            if type(mod) == "function" then
+                impl = mod
+            elseif type(mod) == "table" then
+                local short = method.receiver:match("([^.]+)$")
+                local snake = short:gsub("(%u)", function(c) return "_" .. c:lower() end):gsub("^_", "")
+                local fn = mod[method.name]
+                        or mod[short]
+                        or mod[short:lower()]
+                        or mod[snake]
+                        or mod.boundary
+                if type(fn) ~= "function" then
+                    error(("impl module '%s' for '%s:%s': no matching key (tried '%s', '%s', '%s', '%s', 'boundary')"):format(
+                        mod_path, method.receiver, method.name, method.name, short, short:lower(), snake))
+                end
+                impl = fn
+            else
+                error(("impl module '%s' for '%s:%s' must return function or table, got %s"):format(
+                    mod_path, method.receiver, method.name, type(mod)))
+            end
+        end
+
         if impl ~= nil and type(impl) ~= "function" then
             error(("inline method '%s:%s' impl must evaluate to a function, got %s"):format(method.receiver, method.name, type(impl)))
         end
@@ -2237,6 +2363,24 @@ local function build_schema_object(schema_ast, env, validation_info)
         push(phases, phase.name)
     end
 
+    local transitions = {}
+    local products = {}
+    for _, phase in ipairs(schema_ast.phases) do
+        if phase.transition then
+            transitions[phase.name] = phase.transition
+        end
+        for _, decl in ipairs(phase.decls) do
+            if decl.is_product then
+                products[phase.name .. "." .. decl.name] = {
+                    type_name = decl.name,
+                    phase = phase.name,
+                    fn_field = "fn",
+                    state_field = "state_t",
+                }
+            end
+        end
+    end
+
     local schema_obj = {
         name = schema_ast.name,
         line = schema_ast.line,
@@ -2246,6 +2390,8 @@ local function build_schema_object(schema_ast, env, validation_info)
         methods = collect_methods(schema_ast),
         hooks = collect_hooks(schema_ast),
         externs = extern_values,
+        transitions = transitions,
+        products = products,
         asdl = asdl_text,
         surface = emit_surface(schema_ast),
         ast = schema_ast,
@@ -2296,7 +2442,7 @@ end
 local schema_lang = {
     name = "schema",
     entrypoints = { "schema" },
-    keywords = { "extern", "phase", "record", "enum", "flags", "methods", "hooks", "unique", "where" },
+    keywords = { "extern", "phase", "record", "enum", "flags", "methods", "hooks", "unique", "where", "product", "via", "to" },
 }
 
 function schema_lang:expression(lex)

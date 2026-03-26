@@ -10,23 +10,23 @@ local entry = require("src/view/device_chain/entry")
 
 local M = {}
 
-local function lower(self, ctx)
-        local ui = ctx.ui
-        local p = C.palette(ctx)
-        local scope = C.make_scope(ctx, self.identity, "device_chain")
+local function lower(self)
+        local ui = C.ui
+        local p = C.palette()
+        local scope = C.make_scope(self.identity, "device_chain")
         local children = {}
 
         local add_cmd = C.find_command(self.commands, "DCCAddDevice")
-        C.push(children, B.flat_button(ctx, "+ Device", add_cmd and add_cmd.action_id or nil, {
+        C.push(children, B.flat_button("+ Device", add_cmd and add_cmd.action_id or nil, {
             key = scope:child("add"),
             width = ui.fixed(72),
             background = p.surface_accent_soft,
-            border = C.border(ctx, p.border_focus, 1),
+            border = C.border( p.border_focus, 1),
         }))
         C.push(children, ui.spacer { key = scope:child("lead_gap"), width = ui.fixed(8), height = ui.fixed(0) })
 
         for i = 1, #self.entries do
-            C.push(children, entry.lower(self.entries[i], ctx))
+            C.push(children, entry.lower(self.entries[i]))
             C.push(children, ui.spacer { key = scope:child("gap_" .. tostring(i)), width = ui.fixed(8), height = ui.fixed(0) })
         end
 
@@ -37,7 +37,7 @@ local function lower(self, ctx)
                 height = ui.fixed(22),
                 align_y = ui.align_y.center,
             } {
-                T.section_title(ctx, "DETAIL PANEL / DEVICE CHAIN", scope:child("title")),
+                T.section_title("DETAIL PANEL / DEVICE CHAIN", scope:child("title")),
             },
             ui.scroll_region {
                 key = scope:child("entries"),
@@ -55,7 +55,7 @@ local function lower(self, ctx)
                 } (children),
             },
         }
-        P.overlay_children(ctx, scope, self.identity, surface_children)
+        P.overlay_children(scope, self.identity, surface_children)
 
         return ui.column {
             key = scope,
@@ -70,7 +70,10 @@ local function lower(self, ctx)
 end
 
 
-M.lower = lower
+M.render = lower
 
 
+function M.lower(self)
+    return M.render(self)
+end
 return M

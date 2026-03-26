@@ -70,7 +70,17 @@ function M.open(sample_rate, buffer_size)
         self.render_fn = fn
     end
 
+    -- Set a thunk that lazily resolves the render function.
+    -- The audio loop calls the thunk each push to get the current fn.
+    function session:set_render_thunk(thunk)
+        self._render_thunk = thunk
+    end
+
     function session:render_and_push()
+        -- If we have a thunk, resolve it (picks up hot-swapped fn).
+        if self._render_thunk then
+            self.render_fn = self._render_thunk()
+        end
         if self.render_fn == nil then return end
         local BS = self.buffer_size
         local left = self._left_buf

@@ -1,3 +1,16 @@
+-- Ensure terraui submodule is on the require path.
+do
+    local root = debug.getinfo(1, "S").source:match("^@?(.*/)") or "./"
+    local tui = root .. "terraui/?.t"
+    if not package.terrapath:find(tui, 1, true) then
+        package.terrapath = tui .. ";" .. package.terrapath
+    end
+    local tui_lua = root .. "terraui/?.lua;" .. root .. "terraui/?/init.lua"
+    if not package.path:find(root .. "terraui", 1, true) then
+        package.path = tui_lua .. ";" .. package.path
+    end
+end
+
 import "lib/schema"
 
 local is_terra_type = function(o) return terralib.types.istype(o) end
@@ -6,7 +19,6 @@ local is_terra_func = terralib.isfunction
 local is_plugin_handle = function(o) return type(o) == "userdata" end
 local is_terraui_decl = function(o) return type(o) == "table" end
 
-local make_enum_maps = require("src/support/enum_maps")
 local List = require("terralist")
 local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
@@ -33,7 +45,7 @@ local DAW = schema DAW
     --- User-facing authoring state. Bitwig-shaped concepts: tracks, devices, clips.
     --- Commands operate on Editor types. Invalid states should be unrepresentable.
     --- This layer owns no transient UI state (selection, zoom, hover, drag).
-    phase Editor
+    phase Editor to Authored via lower
         --- Top-level project document. The canonical saved form.
         record Project
             name: string
@@ -646,72 +658,72 @@ local DAW = schema DAW
             doc "Lower editor authoring state to canonical authored semantic form."
             Project:lower() -> Authored.Project
                 doc "Lower full project including tracks, scenes, tempo, and assets."
-                impl = require("src/editor/project")(types.Authored, make_enum_maps(types.Editor, types.Authored))
+                impl = "src/editor/project"
                 fallback = function(self, err) local A = types.Authored; return A.Project(self.name or "error", nil, 0, A.Transport(44100, 512, 120, 0, 4, 4, A.QNone, false, nil), L(), L(), A.TempoMap(L(), L()), A.AssetBank(L(), L(), L(), L(), L())) end
                 status = "real"
             Track:lower() -> Authored.Track
                 doc "Lower track with device chain, clips, slots, and sends."
-                impl = require("src/editor/track")(types.Authored, make_enum_maps(types.Editor, types.Authored))
+                impl = "src/editor/track"
                 fallback = function(self, err) local A = types.Authored; return A.Track(self.id or 0, self.name or "error", self.channels or 2, A.NoInput, A.Param(0,"vol",1,0,4,A.StaticValue(1),A.Replace,A.NoSmoothing), A.Param(1,"pan",0,-1,1,A.StaticValue(0),A.Replace,A.NoSmoothing), A.Graph(0,L(),L(),L(),L(),L(),A.Serial,A.AudioDomain), L(), L(), L(), nil, nil, false, false, false, false, false) end
                 status = "real"
             DeviceChain:lower() -> Authored.Graph
                 doc "Lower serial device chain to Graph(layout=Serial)."
-                impl = require("src/editor/device_chain")(types.Authored, make_enum_maps(types.Editor, types.Authored))
+                impl = "src/editor/device_chain"
                 fallback = function(self, err) local A = types.Authored; return A.Graph(0, L(), L(), L(), L(), L(), A.Serial, A.AudioDomain) end
                 status = "real"
             Device:lower() -> Authored.Node
                 doc "Lower one device (native or container) to one node."
-                impl = require("src/editor/device")(types.Authored, make_enum_maps(types.Editor, types.Authored))
+                impl = "src/editor/device"
                 fallback = function(self, err) local A = types.Authored; return A.Node(0, "error", A.GainNode, L(), L(), L(), L(), L(), false) end
                 status = "real"
             Modulator:lower() -> Authored.ModSlot
                 doc "Lower modulator to mod slot with routes."
-                impl = require("src/editor/modulator")(types.Authored, make_enum_maps(types.Editor, types.Authored))
+                impl = "src/editor/modulator"
                 fallback = function(self, err) local A = types.Authored; return A.ModSlot(A.Node(0,"error",A.LFOMod(A.Sine),L(),L(),L(),L(),L(),false), L(), false) end
                 status = "real"
             ParamValue:lower() -> Authored.Param
                 doc "Lower parameter value with source and smoothing."
-                impl = require("src/editor/param_value")(types.Authored, make_enum_maps(types.Editor, types.Authored))
+                impl = "src/editor/param_value"
                 fallback = function(self, err) local A = types.Authored; return A.Param(self.id or 0, self.name or "error", self.default_value or 0, self.min_value or 0, self.max_value or 1, A.StaticValue(self.default_value or 0), A.Replace, A.NoSmoothing) end
                 status = "real"
             GridPatch:lower() -> Authored.Graph
                 doc "Lower grid patch to Graph(layout=Free)."
-                impl = require("src/editor/grid_patch")(types.Authored, make_enum_maps(types.Editor, types.Authored))
+                impl = "src/editor/grid_patch"
                 fallback = function(self, err) local A = types.Authored; return A.Graph(self.id or 0, L(), L(), L(), L(), L(), A.Free, A.AudioDomain) end
                 status = "real"
             NoteRegion:lower() -> Authored.NoteAsset
                 doc "Lower note region to interned note asset."
-                impl = require("src/editor/clip")(types.Authored, make_enum_maps(types.Editor, types.Authored)).note_region
+                impl = "src/editor/clip"
                 fallback = function(self, err) return types.Authored.NoteAsset(0, L(), L(), 0, 0) end
                 status = "real"
             Clip:lower() -> Authored.Clip
                 doc "Lower clip with content, fades, and gain."
-                impl = require("src/editor/clip")(types.Authored, make_enum_maps(types.Editor, types.Authored)).clip
+                impl = "src/editor/clip"
                 fallback = function(self, err) local A = types.Authored; return A.Clip(self.id or 0, A.AudioContent(0), 0, 0, 0, 0, false, A.Param(0,"gain",1,0,4,A.StaticValue(1),A.Replace,A.NoSmoothing), nil, nil) end
                 status = "real"
             Slot:lower() -> Authored.Slot
                 doc "Lower launcher slot with behavior."
-                impl = require("src/editor/slot")(types.Authored, make_enum_maps(types.Editor, types.Authored))
+                impl = "src/editor/slot"
                 fallback = function(self, err) local A = types.Authored; return A.Slot(self.slot_index or 0, A.EmptySlot, A.LaunchBehavior(A.Trigger, nil, false, false, nil), false) end
                 status = "real"
             Scene:lower() -> Authored.Scene
                 doc "Lower scene with slot assignments."
-                impl = require("src/editor/scene")(types.Authored, make_enum_maps(types.Editor, types.Authored))
+                impl = "src/editor/scene"
                 fallback = function(self, err) return types.Authored.Scene(self.id or 0, self.name or "error", L(), nil, nil) end
                 status = "real"
             Send:lower() -> Authored.Send
                 doc "Lower send routing."
-                impl = require("src/editor/send")(types.Authored, make_enum_maps(types.Editor, types.Authored))
+                impl = "src/editor/send"
                 fallback = function(self, err) local A = types.Authored; return A.Send(self.id or 0, 0, A.Param(0,"level",1,0,1,A.StaticValue(1),A.Replace,A.NoSmoothing), false, false) end
                 status = "real"
             Transport:lower() -> Authored.Transport
                 doc "Lower transport settings."
-                impl = require("src/editor/transport")(types.Authored, make_enum_maps(types.Editor, types.Authored)).transport
+                impl = "src/editor/transport"
                 fallback = function(self, err) return types.Authored.Transport(44100, 512, 120, 0, 4, 4, types.Authored.QNone, false, nil) end
                 status = "real"
             TempoMap:lower() -> Authored.TempoMap
                 doc "Lower tempo map with points and signatures."
-                impl = require("src/editor/transport")(types.Authored, make_enum_maps(types.Editor, types.Authored)).tempo_map
+                impl = "src/editor/transport"
                 fallback = function(self, err) return types.Authored.TempoMap(L(), L()) end
                 status = "real"
         end
@@ -732,7 +744,42 @@ local DAW = schema DAW
             shell: Shell
             focus: Focus
             session_state: SessionState*
+            view_data: ViewData?
             unique
+        end
+
+        --- Session-derived data for view rendering. No ctx — all data explicit.
+        record ViewData
+            track_names: NameEntry*
+            device_names: NameEntry*
+            param_names: NameEntry*
+            clip_layout: ClipLayoutEntry*
+            compile_status: CompileStatusEntry*
+            compile_pending: boolean
+            compile_detail: string?
+            dynamic_status_params: boolean
+        end
+
+        --- Name lookup entry: semantic key → display name.
+        record NameEntry
+            key: string
+            name: string
+        end
+
+        --- Clip layout entry for arrangement display.
+        record ClipLayoutEntry
+            clip_id: number
+            x: number
+            y: number
+            w: number
+            h: number
+        end
+
+        --- Per-ref compile status for incremental display.
+        record CompileStatusEntry
+            key: string
+            status: string
+            detail: string?
         end
 
         --- Stable Editor-backed object references used throughout View.
@@ -2374,53 +2421,53 @@ local DAW = schema DAW
         --- View -> TerraUI lowering methods.
         methods
             doc "Lower View types to TerraUI declaration trees."
-            Root:to_decl() -> TerraUIDecl
+            Root:lower() -> TerraUIDecl
                 doc "Lower full view root to TerraUI shell declaration."
-                impl = require("src/view/all")().root
+                impl = "src/view/root"
                 status = "real"
-            Shell:to_decl() -> TerraUIDecl
+            Shell:lower() -> TerraUIDecl
                 doc "Lower shell layout."
-                impl = require("src/view/all")().shell
+                impl = "src/view/shell"
                 status = "real"
-            TransportBar:to_decl() -> TerraUIDecl
+            TransportBar:lower() -> TerraUIDecl
                 doc "Lower transport bar."
-                impl = require("src/view/all")().transport_bar
+                impl = "src/view/transport_bar"
                 status = "real"
-            ArrangementView:to_decl() -> TerraUIDecl
+            ArrangementView:lower() -> TerraUIDecl
                 doc "Lower arrangement timeline."
-                impl = require("src/view/all")().arrangement
+                impl = "src/view/arrangement/view"
                 status = "real"
-            LauncherView:to_decl() -> TerraUIDecl
+            LauncherView:lower() -> TerraUIDecl
                 doc "Lower launcher session view."
-                impl = require("src/view/all")().launcher
+                impl = "src/view/launcher/view"
                 status = "real"
-            MixerView:to_decl() -> TerraUIDecl
+            MixerView:lower() -> TerraUIDecl
                 doc "Lower mixer strip view."
-                impl = require("src/view/all")().mixer
+                impl = "src/view/mixer/view"
                 status = "real"
-            PianoRollView:to_decl() -> TerraUIDecl
+            PianoRollView:lower() -> TerraUIDecl
                 doc "Lower piano roll note editor."
-                impl = require("src/view/all")().piano_roll
+                impl = "src/view/piano_roll/view"
                 status = "real"
-            DeviceChainView:to_decl() -> TerraUIDecl
+            DeviceChainView:lower() -> TerraUIDecl
                 doc "Lower device chain editor."
-                impl = require("src/view/all")().device_chain
+                impl = "src/view/device_chain/view"
                 status = "real"
-            DeviceView:to_decl() -> TerraUIDecl
+            DeviceView:lower() -> TerraUIDecl
                 doc "Lower focused device editor."
-                impl = require("src/view/all")().device
+                impl = "src/view/device_view"
                 status = "real"
-            GridPatchView:to_decl() -> TerraUIDecl
+            GridPatchView:lower() -> TerraUIDecl
                 doc "Lower grid patch editor."
-                impl = require("src/view/all")().grid_patch
+                impl = "src/view/grid_patch_view"
                 status = "real"
-            InspectorView:to_decl() -> TerraUIDecl
+            InspectorView:lower() -> TerraUIDecl
                 doc "Lower inspector details panel."
-                impl = require("src/view/all")().inspector
+                impl = "src/view/inspector/view"
                 status = "real"
-            BrowserView:to_decl() -> TerraUIDecl
+            BrowserView:lower() -> TerraUIDecl
                 doc "Lower browser sidebar."
-                impl = require("src/view/all")().browser
+                impl = "src/view/browser/view"
                 status = "real"
         end
     end
@@ -2433,7 +2480,7 @@ local DAW = schema DAW
     --- Canonical semantic graph document. The source of truth after lowering.
     --- Graph is the universal container. NodeKind is the one sum type.
     --- Richness belongs here; resolve should not invent absent semantics.
-    phase Authored
+    phase Authored to Resolved via resolve
         --- Authored project: transport, tracks, scenes, tempo, assets.
         record Project
             name: string
@@ -3390,62 +3437,62 @@ local DAW = schema DAW
             doc "Resolve authored semantics into flat tick-based slices."
             Project:resolve(ticks_per_beat: number) -> Resolved.Project
                 doc "Resolve full project: transport, tempo, tracks, scenes, assets."
-                impl = require("src/authored/project")(types.Resolved)
+                impl = "src/authored/project"
                 fallback = function(self, err) local R = types.Resolved; return R.Project(R.Transport(44100,512,120,0,4,4,0,false,0,0), R.TempoMap(L()), L(), L(), R.AssetBank(L(),L(),L(),L(),L())) end
                 status = "real"
             Transport:resolve(ticks_per_beat: number) -> Resolved.Transport
                 doc "Resolve transport to tick-based form."
-                impl = require("src/authored/transport")(types.Resolved).transport
+                impl = "src/authored/transport"
                 fallback = function(self, err) return types.Resolved.Transport(44100,512,120,0,4,4,0,false,0,0) end
                 status = "real"
             TempoMap:resolve(ticks_per_beat: number, sample_rate: number) -> Resolved.TempoMap
                 doc "Resolve tempo map to sample-accurate segments."
-                impl = require("src/authored/transport")(types.Resolved).tempo_map
+                impl = "src/authored/transport"
                 fallback = function(self, err) return types.Resolved.TempoMap(L()) end
                 status = "real"
             Track:resolve(ticks_per_beat: number) -> Resolved.TrackSlice
                 doc "Resolve track into reusable flat slice."
-                impl = require("src/authored/track")(types.Resolved)
+                impl = "src/authored/track"
                 fallback = function(self, err) local R = types.Resolved; return R.TrackSlice(R.Track(self.id or 0, self.name or "error", self.channels or 2, 0,0,0,0,1,0,nil,nil,false,false,false,false,false), L(), L(), L(), L(), L(), R.GraphSlice(L{R.Graph(0,0,1,0,0,0,0,L(),L(),0,0,0,0,0,0)},L(),L(),L(),L(),L(),L(),L(),L())) end
                 status = "real"
             Graph:resolve(ticks_per_beat: number) -> Resolved.GraphSlice
                 doc "Resolve graph subtree into flat slice tables."
-                impl = require("src/authored/graph")(types.Resolved)
+                impl = "src/authored/graph"
                 fallback = function(self, err) local R = types.Resolved; return R.GraphSlice(L{R.Graph(self.id or 0,0,1,0,0,0,0,L(),L(),0,0,0,0,0,0)},L(),L(),L(),L(),L(),L(),L(),L()) end
                 status = "real"
             Param:resolve(ticks_per_beat: number) -> Resolved.Param
                 doc "Resolve parameter source to tick-based form."
-                impl = require("src/authored/param")(types.Resolved)
+                impl = "src/authored/param"
                 fallback = function(self, err) local R = types.Resolved; return R.Param(self.id or 0, 0, self.name or "error", self.default_value or 0, self.min_value or 0, self.max_value or 1, R.ParamSourceRef(0, self.default_value or 0, nil), 0, 0, 0) end
                 status = "real"
             Clip:resolve(ticks_per_beat: number) -> Resolved.Clip
                 doc "Resolve clip timing to ticks."
-                impl = require("src/authored/clip")(types.Resolved)
+                impl = "src/authored/clip"
                 fallback = function(self, err) return types.Resolved.Clip(self.id or 0, 0, 0, 0, 0, 0, 0, false, 0, 0, 0, 0, 0) end
                 status = "real"
             Slot:resolve() -> Resolved.Slot
                 doc "Resolve launcher slot."
-                impl = require("src/authored/slot")(types.Resolved)
+                impl = "src/authored/slot"
                 fallback = function(self, err) return types.Resolved.Slot(self.slot_index or 0, 0, 0, 0, 0, false, false, 0, 0, 0, nil, false) end
                 status = "real"
             Scene:resolve() -> Resolved.Scene
                 doc "Resolve scene."
-                impl = require("src/authored/scene")(types.Resolved)
+                impl = "src/authored/scene"
                 fallback = function(self, err) return types.Resolved.Scene(self.id or 0, self.name or "error", L(), 0, nil) end
                 status = "real"
             Send:resolve() -> Resolved.Send
                 doc "Resolve send routing."
-                impl = require("src/authored/send")(types.Resolved)
+                impl = "src/authored/send"
                 fallback = function(self, err) return types.Resolved.Send(self.id or 0, 0, 0, false, false) end
                 status = "real"
             NodeKind:resolve() -> Resolved.NodeKindRef
                 doc "Resolve node kind to integer code."
-                impl = require("src/authored/node_kind")(types.Resolved)
+                impl = "src/authored/node_kind"
                 fallback = function(self, err) return types.Resolved.NodeKindRef(0) end
                 status = "real"
             AssetBank:resolve(ticks_per_beat: number) -> Resolved.AssetBank
                 doc "Resolve asset bank."
-                impl = require("src/authored/asset_bank")(types.Resolved)
+                impl = "src/authored/asset_bank"
                 fallback = function(self, err) return types.Resolved.AssetBank(L(),L(),L(),L(),L()) end
                 status = "real"
         end
@@ -3458,7 +3505,7 @@ local DAW = schema DAW
 
     --- Flattened runtime-facing semantic boundary. IDs fixed, ticks computed,
     --- local flat tables. Zero sum types from here down.
-    phase Resolved
+    phase Resolved to Classified via classify
         --- Resolved project.
         record Project
             transport: Transport
@@ -3808,27 +3855,27 @@ local DAW = schema DAW
             doc "Classify resolved types into rate-bound slots."
             Project:classify() -> Classified.Project
                 doc "Classify full project."
-                impl = require("src/resolved/project")(types.Classified).project
+                impl = "src/resolved/project"
                 fallback = function(self, err) local C = types.Classified; return C.Project(C.Transport(44100,512,120,0,4,4,0,false,0,0), C.TempoMap(L()), L(), L()) end
                 status = "real"
             Transport:classify() -> Classified.Transport
                 doc "Pass transport through to classified form."
-                impl = require("src/resolved/transport")(types.Classified).transport
+                impl = "src/resolved/transport"
                 fallback = function(self, err) return types.Classified.Transport(44100,512,120,0,4,4,0,false,0,0) end
                 status = "real"
             TempoMap:classify() -> Classified.TempoMap
                 doc "Pass tempo map through to classified form."
-                impl = require("src/resolved/transport")(types.Classified).tempo_map
+                impl = "src/resolved/transport"
                 fallback = function(self, err) return types.Classified.TempoMap(L()) end
                 status = "real"
             TrackSlice:classify() -> Classified.TrackSlice
                 doc "Classify track slice with param bindings and literals."
-                impl = require("src/resolved/project")(types.Classified).track_slice
+                impl = "src/resolved/project"
                 fallback = function(self, err) local C = types.Classified; return C.TrackSlice(C.Track(0,2,0,0,0,C.Binding(0,0),C.Binding(0,0),0,nil,nil,false,false,false,false), L(),L(),L(),L(),L(),L(),L(),L(),L(),L(),L(), C.GraphSlice(L(),L(),L(),L(),L(),L(),L(),L(),L(),L(),L(),L(),L(),L(),L(),L(),0,0)) end
                 status = "real"
             GraphSlice:classify() -> Classified.GraphSlice
                 doc "Classify graph slice with rate-bound signal tables."
-                impl = require("src/resolved/project")(types.Classified).graph_slice
+                impl = "src/resolved/project"
                 fallback = function(self, err) return types.Classified.GraphSlice(L(),L(),L(),L(),L(),L(),L(),L(),L(),L(),L(),L(),L(),L(),L(),L(),0,0) end
                 status = "real"
         end
@@ -3841,7 +3888,7 @@ local DAW = schema DAW
 
     --- Rate classification: every parameter bound to a rate class and slot.
     --- Binding = (rate_class, slot). rate_class: 0=literal 1=init 2=block 3=sample 4=event 5=voice.
-    phase Classified
+    phase Classified to Scheduled via schedule
         --- Classified project.
         record Project
             transport: Transport
@@ -4184,31 +4231,31 @@ local DAW = schema DAW
             doc "Schedule classified types into buffer-allocated reusable programs."
             Project:schedule() -> Scheduled.Project
                 doc "Schedule full project into track programs."
-                impl = require("src/classified/project")(types.Scheduled).project
+                impl = "src/classified/project"
                 fallback = function(self, err) local S = types.Scheduled; return S.Project(S.Transport(44100,512,120,0,4,4,0,false,0,0), S.TempoMap(L()), L(), L()) end
                 status = "real"
             Transport:schedule() -> Scheduled.Transport
                 doc "Pass transport to scheduled form."
-                impl = require("src/classified/transport")(types.Scheduled).transport
+                impl = "src/classified/transport"
                 fallback = function(self, err) return types.Scheduled.Transport(44100,512,120,0,4,4,0,false,0,0) end
                 status = "real"
             TempoMap:schedule() -> Scheduled.TempoMap
                 doc "Pass tempo map to scheduled form."
-                impl = require("src/classified/transport")(types.Scheduled).tempo_map
+                impl = "src/classified/transport"
                 fallback = function(self, err) return types.Scheduled.TempoMap(L()) end
                 status = "real"
             Binding:schedule() -> Scheduled.Binding
                 doc "Convert classified binding to scheduled binding."
-                impl = require("src/classified/binding")(types.Scheduled)
+                impl = "src/classified/binding"
                 fallback = function(self, err) return types.Scheduled.Binding(0, 0) end
                 status = "real"
             TrackSlice:schedule(transport: Transport, tempo_map: TempoMap) -> Scheduled.TrackProgram
                 doc "Schedule track slice into reusable track program."
-                impl = require("src/classified/project")(types.Scheduled).track_slice
+                impl = "src/classified/project"
                 status = "real"
             GraphSlice:schedule(transport: Transport, tempo_map: TempoMap) -> Scheduled.GraphProgram
                 doc "Schedule graph slice into reusable graph program."
-                impl = require("src/classified/project")(types.Scheduled).graph_slice
+                impl = "src/classified/project"
                 status = "real"
         end
     end
@@ -4219,7 +4266,7 @@ local DAW = schema DAW
     -- ════════════════════════════════════════════════════════════════
 
     --- Buffer-allocated reusable programs. Raw jobs are data; programs own compile().
-    phase Scheduled
+    phase Scheduled to Kernel via compile
         --- Scheduled project.
         record Project
             transport: Transport
@@ -4620,47 +4667,47 @@ local DAW = schema DAW
             doc "Compile scheduled programs into native Terra code."
             Project:compile() -> Kernel.Project
                 doc "Compile full project: compose track units into render entry."
-                impl = require("src/scheduled/project")(types.Kernel).project
+                impl = "src/scheduled/project"
                 fallback = function(self, err) local terra silent(ol: &float, or_: &float, f: int32) for i = 0,f do ol[i]=0.0f; or_[i]=0.0f end end; return types.Kernel.Project(silent) end
                 status = "real"
             TrackProgram:compile() -> Kernel.Unit
                 doc "Compile track program: compose graph, clip, send, mix, output units."
-                impl = require("src/scheduled/project")(types.Kernel).track_program
+                impl = "src/scheduled/project"
                 fallback = function(self, err) local terra noop(ol: &float, or_: &float, f: int32) end; return types.Kernel.Unit(noop, tuple()) end
                 status = "real"
             GraphProgram:compile() -> Kernel.Unit
                 doc "Compile graph program: compose node and mod units."
-                impl = require("src/scheduled/project")(types.Kernel).graph_program
+                impl = "src/scheduled/project"
                 fallback = function(self, err) local terra noop(b: &float, f: int32) end; return types.Kernel.Unit(noop, tuple()) end
                 status = "real"
             NodeProgram:compile() -> Kernel.Unit
                 doc "Compile one node's DSP into a reusable unit."
-                impl = require("src/scheduled/leaf_programs")(types.Kernel).node_program
+                impl = "src/scheduled/leaf_programs"
                 fallback = function(self, err) local terra noop(b: &float, f: int32, a: &float, b2: &float, c: &float, d: &float, e: &float) end; return types.Kernel.Unit(noop, tuple()) end
                 status = "real"
             ModProgram:compile() -> Kernel.Unit
                 doc "Compile one modulator into a reusable unit."
-                impl = require("src/scheduled/leaf_programs")(types.Kernel).mod_program
+                impl = "src/scheduled/leaf_programs"
                 fallback = function(self, err) local terra noop(b: &float, f: int32, a: &float, b2: &float, c: &float, d: &float, e: &float) end; return types.Kernel.Unit(noop, tuple()) end
                 status = "real"
             ClipProgram:compile() -> Kernel.Unit
                 doc "Compile one clip into a reusable unit."
-                impl = require("src/scheduled/leaf_programs")(types.Kernel).clip_program
+                impl = "src/scheduled/leaf_programs"
                 fallback = function(self, err) local terra noop(b: &float, f: int32, a: &float, b2: &float, c: &float, d: &float, e: &float) end; return types.Kernel.Unit(noop, tuple()) end
                 status = "real"
             SendProgram:compile() -> Kernel.Unit
                 doc "Compile one send into a reusable unit."
-                impl = require("src/scheduled/leaf_programs")(types.Kernel).send_program
+                impl = "src/scheduled/leaf_programs"
                 fallback = function(self, err) local terra noop(b: &float, f: int32, a: &float, b2: &float, c: &float, d: &float, e: &float) end; return types.Kernel.Unit(noop, tuple()) end
                 status = "real"
             MixProgram:compile() -> Kernel.Unit
                 doc "Compile one mix bus into a reusable unit."
-                impl = require("src/scheduled/leaf_programs")(types.Kernel).mix_program
+                impl = "src/scheduled/leaf_programs"
                 fallback = function(self, err) local terra noop(b: &float, f: int32, a: &float, b2: &float, c: &float, d: &float, e: &float) end; return types.Kernel.Unit(noop, tuple()) end
                 status = "real"
             OutputProgram:compile() -> Kernel.Unit
                 doc "Compile one output stage into a reusable unit."
-                impl = require("src/scheduled/leaf_programs")(types.Kernel).output_program
+                impl = "src/scheduled/leaf_programs"
                 fallback = function(self, err) local terra noop(b: &float, f: int32, a: &float, b2: &float, c: &float, d: &float, e: &float) end; return types.Kernel.Unit(noop, tuple()) end
                 status = "real"
         end
@@ -4675,10 +4722,10 @@ local DAW = schema DAW
     --- compile product is Kernel.Unit: one function, one owned state ABI.
     phase Kernel
         --- Atomic reusable compile product: one function, one owned state type.
-        record Unit
+        product Unit
+            doc "The canonical { fn, state_t } compile product."
             fn: TerraFunc
             state_t: TerraType
-            unique
         end
 
         --- Compiled project with render entry point.
@@ -4692,7 +4739,7 @@ local DAW = schema DAW
             doc "Kernel runtime accessors."
             Project:entry_fn() -> TerraFunc
                 doc "Return the compiled render entry function."
-                impl = require("src/kernel/project")(types.Kernel)
+                impl = "src/kernel/project"
                 status = "real"
         end
     end

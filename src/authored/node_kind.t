@@ -1,7 +1,8 @@
 -- impl2/authored/node_kind.t
 -- Authored.NodeKind:resolve -> Resolved.NodeKindRef
 
-return function(R)
+return function(types)
+local R = types.Resolved
     local node_kind_names = {
         "BasicSynth", "Sampler", "DrumMachine", "Polymer", "HWInstrument",
         "GainNode", "PanNode", "EQNode", "CompressorNode", "GateNode",

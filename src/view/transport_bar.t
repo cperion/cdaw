@@ -12,43 +12,43 @@ local P = require("src/view/components/placeholder_panel")
 
 local M = {}
 
-local function lower(self, ctx)
-        local ui = ctx.ui
-        local p = C.palette(ctx)
-        local scope = C.make_scope(ctx, self.identity, "transport")
+local function lower(self)
+        local ui = C.ui
+        local p = C.palette()
+        local scope = C.make_scope(self.identity, "transport")
         local play_cmd = C.find_command(self.commands, "TCCPlay")
         local stop_cmd = C.find_command(self.commands, "TCCStop")
         local rec_cmd = C.find_command(self.commands, "TCCToggleRecord")
         local loop_cmd = C.find_command(self.commands, "TCCToggleLoop")
 
         local left_children = {
-            B.flat_button(ctx, "FILE", nil, {
+            B.flat_button("FILE", nil, {
                 key = scope:child("file"),
                 width = ui.fixed(38),
                 height = ui.fixed(24),
                 padding = { left = 0, top = 0, right = 0, bottom = 0 },
                 font_size = 10,
             }),
-            B.flat_button(ctx, "PLAY", play_cmd and play_cmd.action_id or nil, {
+            B.flat_button("PLAY", play_cmd and play_cmd.action_id or nil, {
                 key = scope:child("play"),
                 width = ui.fixed(38),
                 height = ui.fixed(24),
                 padding = { left = 0, top = 0, right = 0, bottom = 0 },
                 font_size = 10,
             }),
-            I.icon_button(ctx, scope:child("stop"), I.stop,
+            I.icon_button(scope:child("stop"), I.stop,
                 stop_cmd and stop_cmd.action_id or nil, {
                 size = 24, icon_size = 12, icon_color = p.text_primary,
             }),
-            I.icon_button(ctx, scope:child("record"), I.record,
+            I.icon_button(scope:child("record"), I.record,
                 rec_cmd and rec_cmd.action_id or nil, {
                 size = 24, icon_size = 14, icon_color = p.state_record,
                 background = p.surface_record,
-                border = C.border(ctx, p.border_record, 1),
+                border = C.border( p.border_record, 1),
             }),
         }
         if self.show_loop then
-            C.push(left_children, I.icon_button(ctx, scope:child("loop"), I.loop,
+            C.push(left_children, I.icon_button(scope:child("loop"), I.loop,
                 loop_cmd and loop_cmd.action_id or nil, {
                 size = 24, icon_size = 12, icon_color = p.text_primary,
             }))
@@ -70,24 +70,24 @@ local function lower(self, ctx)
             align_y = ui.align_y.center,
             padding = { left = 12, top = 0, right = 12, bottom = 0 },
             background = p.surface_inset,
-            border = C.border(ctx, p.border_subtle, 1),
+            border = C.border( p.border_subtle, 1),
         } {
-            T.mono_label(ctx, "110.00", {
+            T.mono_label("110.00", {
                 key = scope:child("tempo"),
                 font_size = 14,
                 text_color = p.track_accent,
             }),
-            T.mono_label(ctx, "1.1.1.00", {
+            T.mono_label("1.1.1.00", {
                 key = scope:child("bars"),
                 font_size = 14,
                 text_color = p.text_primary,
             }),
-            T.quiet_label(ctx, "4/4", {
+            T.quiet_label("4/4", {
                 key = scope:child("timesig"),
                 font_size = 12,
                 text_color = p.track_accent,
             }),
-            T.mono_label(ctx, "0:00.000", {
+            T.mono_label("0:00.000", {
                 key = scope:child("clock"),
                 font_size = 12,
                 text_color = p.text_secondary,
@@ -95,21 +95,21 @@ local function lower(self, ctx)
         }
 
         local right_children = {}
-        C.push(right_children, B.flat_button(ctx, "ADD", nil, {
+        C.push(right_children, B.flat_button("ADD", nil, {
             key = scope:child("add"),
             width = ui.fixed(36),
             height = ui.fixed(24),
             padding = { left = 0, top = 0, right = 0, bottom = 0 },
             font_size = 10,
         }))
-        C.push(right_children, B.flat_button(ctx, "EDIT", nil, {
+        C.push(right_children, B.flat_button("EDIT", nil, {
             key = scope:child("edit"),
             width = ui.fixed(36),
             height = ui.fixed(24),
             padding = { left = 0, top = 0, right = 0, bottom = 0 },
             font_size = 10,
             background = p.surface_selected,
-            border = C.border(ctx, p.border_selected, 1),
+            border = C.border( p.border_selected, 1),
         }))
 
         local right = ui.row {
@@ -127,7 +127,7 @@ local function lower(self, ctx)
             ui.spacer { key = scope:child("grow_r"), width = ui.grow(), height = ui.fixed(0) },
             right,
         }
-        P.overlay_children(ctx, scope, self.identity, children)
+        P.overlay_children(scope, self.identity, children)
 
         return ui.row {
             key = scope,
@@ -143,7 +143,10 @@ local function lower(self, ctx)
 end
 
 
-M.lower = lower
+M.render = lower
 
 
+function M.lower(self)
+    return M.render(self)
+end
 return M

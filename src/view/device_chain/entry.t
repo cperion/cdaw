@@ -9,30 +9,30 @@ local P = require("src/view/components/placeholder_panel")
 
 local M = {}
 
-function M.lower(entry, ctx)
-    local ui = ctx.ui
-    local p = C.palette(ctx)
-    local entry_scope = C.make_scope(ctx, entry.identity, C.identity_key(entry.identity))
+function M.lower(entry)
+    local ui = C.ui
+    local p = C.palette()
+    local entry_scope = C.make_scope(entry.identity, C.identity_key(entry.identity))
     local toggle_cmd = C.find_command(entry.commands, "DECCToggleDeviceEnabled")
 
     local children = {
-        T.strong_label(ctx, C.device_name(ctx, entry.device_ref), {
+        T.strong_label(C.device_name(entry.device_ref), {
             key = entry_scope:child("title"),
             width = ui.grow(),
             font_size = 12,
         }),
-        T.quiet_label(ctx, "Native device", {
+        T.quiet_label("Native device", {
             key = entry_scope:child("kind"),
             width = ui.grow(),
             font_size = 11,
         }),
         ui.spacer { key = entry_scope:child("grow"), width = ui.fixed(0), height = ui.grow() },
-        B.flat_button(ctx, "Enabled", toggle_cmd and toggle_cmd.action_id or nil, {
+        B.flat_button("Enabled", toggle_cmd and toggle_cmd.action_id or nil, {
             key = entry_scope:child("enable"),
             width = ui.grow(),
         }),
     }
-    P.overlay_children(ctx, entry_scope, entry.device_ref or entry.identity, children)
+    P.overlay_children(entry_scope, entry.device_ref or entry.identity, children)
 
     return ui.column {
         key = entry_scope,
@@ -41,7 +41,7 @@ function M.lower(entry, ctx)
         gap = 8,
         padding = { left = 10, top = 10, right = 10, bottom = 10 },
         background = p.surface_device,
-        border = C.border(ctx, p.border_authored, 1),
+        border = C.border( p.border_authored, 1),
     } (children)
 end
 

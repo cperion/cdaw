@@ -1,7 +1,9 @@
 -- impl2/editor/slot.t
 -- Editor.Slot:lower -> Authored.Slot
 
-return function(A, maps)
+return function(types)
+local A = types.Authored
+local maps = require('src/support/enum_maps')(types.Editor, types.Authored)
     return function(self)
         local follow = nil
         if self.behavior.follow then

@@ -9,13 +9,13 @@ local lane = require("src/view/arrangement/lane")
 
 local M = {}
 
-local function lower(self, ctx)
-        local ui = ctx.ui
-        local p = C.palette(ctx)
-        local scope = C.make_scope(ctx, self.identity, "arrangement")
+local function lower(self)
+        local ui = C.ui
+        local p = C.palette()
+        local scope = C.make_scope(self.identity, "arrangement")
         local lane_children = {}
         for i = 1, #self.lanes do
-            C.push(lane_children, lane.lower(self.lanes[i], ctx, ctx.selection))
+            C.push(lane_children, lane.lower(self.lanes[i], C.selection))
         end
 
         local ruler_text = "1.1      1.2      1.3      1.4      2.1      2.2      2.3      2.4"
@@ -32,7 +32,7 @@ local function lower(self, ctx)
                 background = p.surface_ruler,
                 border = ui.border { bottom = 1, color = p.border_separator },
             } {
-                T.quiet_label(ctx, ruler_text, {
+                T.quiet_label(ruler_text, {
                     key = scope:child("ruler_text"),
                     font_size = 11,
                     text_color = p.text_primary,
@@ -46,7 +46,7 @@ local function lower(self, ctx)
                 background = p.surface_arrangement,
             } (lane_children),
         }
-        P.overlay_children(ctx, scope, self.identity, children)
+        P.overlay_children(scope, self.identity, children)
 
         return ui.column {
             key = scope,
@@ -60,7 +60,10 @@ local function lower(self, ctx)
 end
 
 
-M.lower = lower
+M.render = lower
 
 
+function M.lower(self)
+    return M.render(self)
+end
 return M

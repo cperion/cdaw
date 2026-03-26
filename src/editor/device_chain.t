@@ -20,7 +20,9 @@ local function default_graph_id(chain)
     return acc
 end
 
-return function(A, maps)
+return function(types)
+local A = types.Authored
+local maps = require('src/support/enum_maps')(types.Editor, types.Authored)
     return function(self)
         local nodes = L()
         for i = 1, #self.devices do nodes[i] = self.devices[i]:lower() end

@@ -14,15 +14,15 @@ local M = {}
 
 -- ── Helpers ──
 
-local function defaults(ctx, size, color)
+local function defaults(size, color)
     size = size or 12
-    color = color or C.palette(ctx).text_primary
+    color = color or C.palette().text_primary
     return size, color
 end
 
 -- Create a ui.custom icon node with the given kind, size, and color.
-local function icon_node(ctx, scope, kind, size, color)
-    local ui = ctx.ui
+local function icon_node(scope, kind, size, color)
+    local ui = C.ui
     return ui.custom {
         key = scope,
         kind = kind,
@@ -36,59 +36,59 @@ end
 -- Transport icons — TCCPlay, TCCStop, TCCToggleRecord, TCCToggleLoop
 -- ═══════════════════════════════════════════════════════════════════════
 
-function M.play(ctx, scope, size, color)
-    size, color = defaults(ctx, size, color)
-    return icon_node(ctx, scope, "icon.play", size, color)
+function M.play(scope, size, color)
+    size, color = defaults(size, color)
+    return icon_node(scope, "icon.play", size, color)
 end
 
-function M.stop(ctx, scope, size, color)
-    size, color = defaults(ctx, size, color)
-    return icon_node(ctx, scope, "icon.stop", size, color)
+function M.stop(scope, size, color)
+    size, color = defaults(size, color)
+    return icon_node(scope, "icon.stop", size, color)
 end
 
-function M.record(ctx, scope, size, color)
+function M.record(scope, size, color)
     size = size or 12
-    color = color or C.palette(ctx).state_record
-    return icon_node(ctx, scope, "icon.record", size, color)
+    color = color or C.palette().state_record
+    return icon_node(scope, "icon.record", size, color)
 end
 
-function M.loop(ctx, scope, size, color)
-    size, color = defaults(ctx, size, color)
-    return icon_node(ctx, scope, "icon.loop", size, color)
+function M.loop(scope, size, color)
+    size, color = defaults(size, color)
+    return icon_node(scope, "icon.loop", size, color)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- Track state icons — TrackArmedF, TrackSoloedF, TrackMutedF
 -- ═══════════════════════════════════════════════════════════════════════
 
-function M.arm(ctx, scope, size, color)
+function M.arm(scope, size, color)
     size = size or 12
-    color = color or C.palette(ctx).state_record
-    return icon_node(ctx, scope, "icon.record", size, color)
+    color = color or C.palette().state_record
+    return icon_node(scope, "icon.record", size, color)
 end
 
-function M.solo(ctx, scope, size, color)
-    size, color = defaults(ctx, size, color)
-    return icon_node(ctx, scope, "icon.solo", size, color)
+function M.solo(scope, size, color)
+    size, color = defaults(size, color)
+    return icon_node(scope, "icon.solo", size, color)
 end
 
-function M.mute(ctx, scope, size, color)
-    size, color = defaults(ctx, size, color)
-    return icon_node(ctx, scope, "icon.mute", size, color)
+function M.mute(scope, size, color)
+    size, color = defaults(size, color)
+    return icon_node(scope, "icon.mute", size, color)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- Action icons
 -- ═══════════════════════════════════════════════════════════════════════
 
-function M.plus(ctx, scope, size, color)
-    size, color = defaults(ctx, size, color)
-    return icon_node(ctx, scope, "icon.plus", size, color)
+function M.plus(scope, size, color)
+    size, color = defaults(size, color)
+    return icon_node(scope, "icon.plus", size, color)
 end
 
-function M.meter(ctx, scope, size, color)
-    size, color = defaults(ctx, size, color)
-    return icon_node(ctx, scope, "icon.meter", size, color)
+function M.meter(scope, size, color)
+    size, color = defaults(size, color)
+    return icon_node(scope, "icon.meter", size, color)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -97,10 +97,10 @@ end
 -- an overlay, so it renders on top of the row background naturally.
 -- ═══════════════════════════════════════════════════════════════════════
 
-function M.icon_button(ctx, scope, icon_fn, action, props)
+function M.icon_button(scope, icon_fn, action, props)
     props = props or {}
-    local ui = ctx.ui
-    local p = C.palette(ctx)
+    local ui = C.ui
+    local p = C.palette()
     local size = props.size or 20
     local icon_size = props.icon_size or math.max(6, math.floor(size * 0.55))
     local icon_color = props.icon_color or p.text_primary
@@ -112,14 +112,14 @@ function M.icon_button(ctx, scope, icon_fn, action, props)
         gap = 0,
         align_y = ui.align_y.center,
         background = props.background or p.surface_control,
-        border = props.border or C.border(ctx, p.border_control, 1),
+        border = props.border or C.border( p.border_control, 1),
         radius = props.radius or ui.radius(3),
         hover = true,
         press = true,
         action = action,
     } {
         ui.spacer { key = scope:child("_l"), width = ui.grow(), height = ui.fixed(0) },
-        icon_fn(ctx, scope:child("ic"), icon_size, icon_color),
+        icon_fn(scope:child("ic"), icon_size, icon_color),
         ui.spacer { key = scope:child("_r"), width = ui.grow(), height = ui.fixed(0) },
     }
 end

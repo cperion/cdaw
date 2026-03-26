@@ -1,7 +1,8 @@
 -- impl2/authored/slot.t
 -- Authored.Slot:resolve -> Resolved.Slot
 
-return function(R)
+return function(types)
+local R = types.Resolved
     local slot_kind_codes = { EmptySlot = 0, ClipSlot = 1, StopSlot = 2 }
     local launch_mode_codes = { Trigger = 0, Gate = 1, Toggle = 2, Repeat = 3 }
     local follow_kind_codes = { FNone = 0, FNext = 1, FPrev = 2, FFirst = 3, FLast = 4, FOther = 5, FRandom = 6, FStop = 7 }

@@ -10,19 +10,19 @@ local piano_roll_view = require("src/view/piano_roll/view")
 
 local M = {}
 
-function M.lower(detail_panel, ctx)
+function M.lower(detail_panel)
     if detail_panel == nil then return nil end
     if detail_panel.kind == "DeviceChainDetail" then
-        return chain_view.lower(detail_panel.chain, ctx)
+        return chain_view.render(detail_panel.chain)
     elseif detail_panel.kind == "DeviceDetail" then
-        return device_view.lower(detail_panel.device, ctx)
+        return device_view.render(detail_panel.device)
     elseif detail_panel.kind == "GridDetail" then
-        return grid_patch_view.lower(detail_panel.patch, ctx)
+        return grid_patch_view.render(detail_panel.patch)
     elseif detail_panel.kind == "PianoRollDetail" then
-        return piano_roll_view.lower(detail_panel.piano_roll, ctx)
+        return piano_roll_view.render(detail_panel.piano_roll)
     end
-    C.record_diag(ctx, "warning", "view.detail.unsupported", detail_panel.kind)
-    return P.fallback_node(ctx, "detail/unsupported", "Unsupported detail panel", detail_panel.kind)
+    C.record_diag("warning", "view.detail.unsupported", detail_panel.kind)
+    return P.fallback_node("detail/unsupported", "Unsupported detail panel", detail_panel.kind)
 end
 
 return M

@@ -4,7 +4,9 @@
 local List = require("terralist")
 local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
-return function(A, maps)
+return function(types)
+local A = types.Authored
+local maps = require('src/support/enum_maps')(types.Editor, types.Authored)
     return function(self)
         local input = maps.track_input(self.input)
         local volume = self.volume:lower()

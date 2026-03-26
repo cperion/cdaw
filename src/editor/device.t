@@ -4,7 +4,9 @@
 local List = require("terralist")
 local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
-return function(A, maps)
+return function(types)
+local A = types.Authored
+local maps = require('src/support/enum_maps')(types.Editor, types.Authored)
     local function with_graph_id(graph, graph_id)
         if not graph then return A.Graph(graph_id or 0, L(), L(), L(), L(), L(), A.Serial, A.AudioDomain) end
         return A.Graph(graph_id or graph.id, graph.inputs, graph.outputs, graph.nodes, graph.wires, graph.pre_cords, graph.layout, graph.domain)

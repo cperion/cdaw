@@ -4,7 +4,8 @@
 local List = require("terralist")
 local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
-return function(R)
+return function(types)
+local R = types.Resolved
     local layout_codes = { Serial = 0, Free = 1, Parallel = 2, Switched = 3, Split = 4 }
     local domain_codes = { NoteDomain = 0, AudioDomain = 1, HybridDomain = 2, ControlDomain = 3 }
     local hint_codes = { AudioHint = 0, ControlHint = 1, GateHint = 2, PitchHint = 3, PhaseHint = 4, TriggerHint = 5 }

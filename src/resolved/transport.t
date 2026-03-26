@@ -4,7 +4,8 @@
 local List = require("terralist")
 local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
-return function(D)
+return function(types)
+local D = types.Classified
     local function classify_transport(self)
         return D.Transport(
             self.sample_rate, self.buffer_size,

@@ -9,14 +9,14 @@ local strip = require("src/view/mixer/strip")
 
 local M = {}
 
-local function lower(self, ctx)
-        local ui = ctx.ui
-        local p = C.palette(ctx)
-        local scope = C.make_scope(ctx, self.identity, "mixer")
+local function lower(self)
+        local ui = C.ui
+        local p = C.palette()
+        local scope = C.make_scope(self.identity, "mixer")
         local strip_children = {}
 
         for i = 1, #self.strips do
-            C.push(strip_children, strip.lower(self.strips[i], ctx, ctx.selection))
+            C.push(strip_children, strip.lower(self.strips[i], C.selection))
         end
 
         local children = {
@@ -38,7 +38,7 @@ local function lower(self, ctx)
                 } (strip_children),
             },
         }
-        P.overlay_children(ctx, scope, self.identity, children)
+        P.overlay_children(scope, self.identity, children)
 
         return ui.column {
             key = scope,
@@ -51,7 +51,10 @@ local function lower(self, ctx)
 end
 
 
-M.lower = lower
+M.render = lower
 
 
+function M.lower(self)
+    return M.render(self)
+end
 return M

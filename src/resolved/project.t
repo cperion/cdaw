@@ -4,7 +4,8 @@
 local List = require("terralist")
 local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
-return function(C)
+return function(types)
+local C = types.Classified
     local node_state_sizes = { [10] = 1, [11] = 4, [12] = 2, [156] = 1, [157] = 2 }
     local mod_state_sizes = { [156] = 1, [157] = 2 }
 

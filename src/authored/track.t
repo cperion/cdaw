@@ -4,7 +4,8 @@
 local List = require("terralist")
 local function L(t) if t == nil then return List() end; local l = List(); for i = 1, #t do l:insert(t[i]) end; return l end
 
-return function(R)
+return function(types)
+local R = types.Resolved
     local interp_codes = { Linear = 0, Smoothstep = 1, Hold = 2 }
 
     local function authored_curve_to_resolved(param, ticks_per_beat)

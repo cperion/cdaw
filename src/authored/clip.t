@@ -1,7 +1,8 @@
 -- impl2/authored/clip.t
 -- Authored.Clip:resolve -> Resolved.Clip
 
-return function(R)
+return function(types)
+local R = types.Resolved
     local fade_codes = { LinearFade = 0, EqualPower = 1, SCurve = 2, ExpoFade = 3 }
     local content_codes = { AudioContent = 0, NoteContent = 1 }
 
